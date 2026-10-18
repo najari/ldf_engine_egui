@@ -88,6 +88,12 @@ pub struct UiState {
     pub activate: bool,
     /// 내비게이션에서 Delete 키로 삭제를 열라는 요청.
     pub delete: bool,
+    /// 내비게이션에서 끌어 표 밖에 놓은 프레임과 놓은 위치(스케줄 뷰가 그 자리의 줄을 찾아 슬롯을 만든다).
+    pub drop_frame: Option<(ldf_model::FrameId, egui::Pos2)>,
+    /// 스케줄 뷰에서 끌고 있는 슬롯(테이블, 번호).
+    pub drag_slot: Option<(ldf_model::ScheduleId, usize)>,
+    /// 뷰가 만든, 앱이 보낼 편집 연산(끌어다 놓기 결과).
+    pub pending_op: Option<ldf_engine::EditOp>,
 }
 
 impl UiState {

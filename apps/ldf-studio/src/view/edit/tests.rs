@@ -507,3 +507,47 @@ fn inline_signal_node_and_schedule_values() {
     .expect("ok");
     assert!(apply(&m, &op).find_schedule("Primary").is_some());
 }
+
+// ---- 스케줄 끌어다 놓기(FR-EDT-05) ----
+
+#[test]
+fn dropped_frames_get_a_sensible_delay_and_position() {
+    let m = model();
+    // 19.2 kbps에서 4바이트 프레임의 최대 시간은 약 6.4 ms라 10 ms를 넘지 않고, 타임베이스 5 ms의 배수가 된다
+    assert!((default_slot_delay(&m, "FA") - 10.0).abs() < 1e-9);
+    // 알 수 없는 프레임도 기본값이 나온다
+    assert!(default_slot_delay(&m, "Nope") >= 10.0);
+    let op = drop_frame_op(&m, "Main", Some(1), "FB");
+    let after = apply(&m, &op);
+    let t = after
+        .schedules
+        .get(after.find_schedule("Main").expect("Main"))
+        .expect("table");
+    assert_eq!(t.slots.len(), 6);
+    assert!(
+        matches!(&t.slots[2].entry, SlotEntry::Frame(r) if r.id().and_then(|i| after.frames.get(i)).is_some_and(|f| f.name == "FB"))
+    );
+    // 테이블 줄에 놓으면 끝에 붙는다
+    let end = apply(&m, &drop_frame_op(&m, "Main", None, "FB"));
+    let t = end
+        .schedules
+        .get(end.find_schedule("Main").expect("Main"))
+        .expect("table");
+    assert!(matches!(
+        t.slots.last().map(|s| &s.entry),
+        Some(SlotEntry::Frame(_))
+    ));
+    assert_eq!(t.slots.len(), 6);
+}
+
+#[test]
+fn moving_a_slot_in_place_does_nothing() {
+    assert!(move_slot_op("Main", 2, 2).is_none());
+    let m = model();
+    let after = apply(&m, &move_slot_op("Main", 0, 2).expect("op"));
+    let t = after
+        .schedules
+        .get(after.find_schedule("Main").expect("Main"))
+        .expect("table");
+    assert!(matches!(t.slots[2].entry, SlotEntry::Frame(_)));
+}

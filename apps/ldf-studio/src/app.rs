@@ -1293,6 +1293,9 @@ impl eframe::App for StudioApp {
             self.fatal_screen(ui, &msg);
         } else if let Some(snap) = snap {
             self.main_view(ui, &snap);
+            if let Some(op) = self.st.pending_op.take() {
+                self.edit(op);
+            }
             self.checker_window(&ctx, &snap);
             self.export_window(&ctx, &snap);
             self.edit_window(&ctx, &snap);

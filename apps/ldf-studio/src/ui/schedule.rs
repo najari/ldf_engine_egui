@@ -1,6 +1,7 @@
 //! 스케줄 뷰: 테이블과 슬롯을 트리형 표로 보여준다.
 
 use super::UiState;
+use crate::view::edit::{drop_frame_op, move_slot_op};
 use crate::view::{Selection, derive};
 use egui::{Sense, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -46,6 +47,9 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
     let open = st.sched_open.clone();
     let error = ui.visuals().error_fg_color;
     let weak = ui.visuals().weak_text_color();
+    // 그려진 줄의 영역(끌어다 놓을 자리를 찾는 데 쓴다)
+    let mut rects: Vec<(Line, egui::Rect)> = Vec::new();
+    let mut started_drag: Option<(ScheduleId, usize)> = None;
 
     // 라벨이 클릭을 가로채지 않도록 텍스트 선택을 끈다(행 어디를 눌러도 행이 선택된다)
     ui.style_mut().interaction.selectable_labels = false;
@@ -53,7 +57,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
         .id_salt("schedule-table")
         .striped(true)
         .resizable(true)
-        .sense(Sense::click())
+        .sense(Sense::click_and_drag())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
         .column(Column::initial(200.0).at_least(120.0).clip(true))
         .column(Column::initial(90.0).at_least(60.0).clip(true))
@@ -135,11 +139,47 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
                         });
                     }
                 }
-                if row.response().clicked() {
+                let resp = row.response();
+                rects.push((line, resp.rect));
+                if resp.clicked() {
                     select = Some(target);
+                }
+                if let Some(i) = line.slot
+                    && resp.drag_started()
+                {
+                    started_drag = Some((line.sched, i));
                 }
             });
         });
+
+    if started_drag.is_some() {
+        st.drag_slot = started_drag;
+    }
+    if st.drag_slot.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    // 슬롯을 놓았다: 같은 테이블의 다른 슬롯 줄 위면 그 자리로 옮긴다
+    if let Some((sched, from)) = st.drag_slot
+        && ui.input(|i| i.pointer.any_released())
+    {
+        st.drag_slot = None;
+        let pos = ui.input(|i| i.pointer.interact_pos());
+        let target = pos.and_then(|p| rects.iter().find(|(_, r)| r.contains(p)));
+        if let Some((l, _)) = target
+            && l.sched == sched
+            && let Some(to) = l.slot
+            && let Some(t) = m.schedules.get(sched)
+        {
+            st.pending_op = move_slot_op(&t.name, from, to);
+        }
+    }
+    // 내비게이션에서 프레임을 끌어다 놓았다: 놓은 줄의 테이블에 슬롯을 만든다(슬롯 줄이면 그 뒤에)
+    if let Some((frame, pos)) = st.drop_frame.take()
+        && let Some((l, _)) = rects.iter().find(|(_, r)| r.contains(pos))
+        && let (Some(t), Some(f)) = (m.schedules.get(l.sched), m.frames.get(frame))
+    {
+        st.pending_op = Some(drop_frame_op(m, &t.name, l.slot, &f.name));
+    }
 
     if let Some(s) = toggle
         && !st.sched_open.remove(&s)

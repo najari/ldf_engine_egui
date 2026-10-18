@@ -59,6 +59,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         selection,
         activate,
         delete,
+        drop_frame,
         ..
     } = st;
     let state: &mut TreeViewState<NavKey> = match tab {
@@ -80,6 +81,12 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
                     }
                 }
                 Action::Activate(_) => *activate = true,
+                // 프레임을 트리 밖(스케줄 뷰)에 놓았다: 어느 줄인지는 스케줄 뷰가 정한다
+                Action::MoveExternal(d) => {
+                    if let [NavKey::Frame(id)] = d.source.as_slice() {
+                        *drop_frame = Some((*id, d.position));
+                    }
+                }
                 _ => {}
             }
         }

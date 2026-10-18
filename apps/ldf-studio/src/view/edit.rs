@@ -1402,6 +1402,46 @@ pub fn inline_edit(
     }
 }
 
+/// 스케줄에 프레임을 새로 넣을 때 제안하는 delay(ms): 최대 프레임 시간 이상이면서 마스터 타임베이스의 배수이고, 최소 10 ms.
+pub fn default_slot_delay(m: &LdfModel, frame: &str) -> f64 {
+    let timebase = m
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role == NodeRole::Master)
+        .and_then(|(_, n)| n.timebase_ms)
+        .filter(|t| *t > 0.0);
+    let tmax = m
+        .find_frame(frame)
+        .and_then(|id| m.frames.get(id))
+        .and_then(|f| f.size_bytes())
+        .and_then(|size| ldf_model::frame_time_max_ms(size, m.header.speed_bps.unwrap_or(0)))
+        .unwrap_or(0.0);
+    let want = tmax.max(10.0);
+    match timebase {
+        Some(tb) => (want / tb).ceil() * tb,
+        None => want.ceil(),
+    }
+}
+
+/// 내비게이션에서 프레임을 스케줄 표 위로 끌어다 놓았을 때의 연산. `slot`이 있으면 그 슬롯 바로 뒤에, 없으면(테이블 줄) 끝에 넣는다.
+pub fn drop_frame_op(m: &LdfModel, table: &str, slot: Option<usize>, frame: &str) -> EditOp {
+    EditOp::AddSlot {
+        table: table.to_owned(),
+        index: slot.map(|i| i + 1),
+        entry: SlotDraft::Frame(frame.to_owned()),
+        delay_ms: default_slot_delay(m, frame),
+    }
+}
+
+/// 같은 테이블 안에서 슬롯을 끌어 `from`에서 `to`로 옮기는 연산. 제자리면 `None`.
+pub fn move_slot_op(table: &str, from: usize, to: usize) -> Option<EditOp> {
+    (from != to).then(|| EditOp::MoveSlot {
+        table: table.to_owned(),
+        from,
+        to,
+    })
+}
+
 /// 노드 이름 목록(슬레이브만 또는 전체).
 pub fn node_names(m: &LdfModel, slaves_only: bool) -> Vec<String> {
     m.nodes
