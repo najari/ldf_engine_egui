@@ -7,6 +7,7 @@ pub mod derive;
 pub mod edit;
 pub mod nav;
 pub mod props;
+pub mod revisions;
 
 use ldf_model::{FrameId, LdfModel, NodeId, ScheduleId, SignalId};
 

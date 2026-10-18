@@ -285,7 +285,7 @@ fn a_failed_edit_leaves_everything_untouched() {
 fn saving_creates_a_child_revision_and_keeps_the_history() {
     let (mut s, base) = open();
     let edited = s.edit(&base, &EditOp::AddSlave("C".into())).expect("edit");
-    let saved = s.save_edits(&edited).expect("save").snapshot;
+    let saved = s.save_edits(&edited, None).expect("save").snapshot;
     assert!(!saved.dirty, "저장 직후에는 변경 없음");
     assert_ne!(saved.revision.id, base.revision.id);
     assert_eq!(saved.revision.parent_id, Some(base.revision.id));

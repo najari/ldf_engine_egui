@@ -178,6 +178,12 @@ impl Store {
         Ok(())
     }
 
+    /// 지운 리비전이 차지하던 공간을 파일에서 회수한다.
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
     /// 프로젝트의 규칙 설정(코드 순).
     pub fn rule_settings(&self, project_id: i64) -> Result<Vec<RuleSettingRow>> {
         let mut st = self.conn.prepare_cached(

@@ -143,7 +143,7 @@ impl Session {
     /// 같은 프로젝트에 원본 바이트가 완전히 같은 리비전이 있으면 새로 만들지 않고 그것을 연다.
     /// 같은 파일 이름의 최근 리비전이 있으면 그 리비전을 부모로 연결한다.
     pub fn import_bytes(&mut self, name: &str, bytes: &[u8]) -> Result<ImportOutcome> {
-        self.store_bytes(name, bytes, None)
+        self.store_bytes(name, bytes, None, None)
     }
 
     /// 편집한 텍스트를 새 리비전으로 저장한다(FR-CHK-05). 원본 인코딩으로 다시 인코딩하고,
@@ -156,7 +156,7 @@ impl Session {
         parent: Option<i64>,
     ) -> Result<ImportOutcome> {
         let bytes = decode::encode(text, encoding);
-        self.store_bytes(name, &bytes, Some(parent))
+        self.store_bytes(name, &bytes, Some(parent), None)
     }
 
     /// `parent`가 `None`이면 같은 파일 이름의 최근 리비전을, `Some(p)`이면 `p`를 부모로 쓴다.
@@ -165,6 +165,7 @@ impl Session {
         name: &str,
         bytes: &[u8],
         parent: Option<Option<i64>>,
+        label: Option<&str>,
     ) -> Result<ImportOutcome> {
         if let Some(id) = self.store.find_revision_by_source(self.project_id, bytes)? {
             let snapshot = self.open_revision(id)?;
@@ -189,7 +190,7 @@ impl Session {
         let id = self.store.save_revision(&NewRevision {
             project_id: self.project_id,
             parent_id,
-            label: name,
+            label: label.unwrap_or(name),
             source_name: Some(name),
             source: bytes,
             model: &analysis.model,
@@ -326,8 +327,13 @@ impl Session {
         Some(self.snapshot_from_text(snap, next))
     }
 
-    /// 편집한 내용을 새 리비전으로 저장한다(바탕 리비전이 부모). Undo 기록은 유지한다.
-    pub fn save_edits(&mut self, snap: &ModelSnapshot) -> Result<ImportOutcome> {
+    /// 편집한 내용을 새 리비전으로 저장한다(바탕 리비전이 부모, FR-REV-02). `label`이 `None`이면 출처 파일 이름을 라벨로 쓴다.
+    /// Undo 기록은 유지한다.
+    pub fn save_edits(
+        &mut self,
+        snap: &ModelSnapshot,
+        label: Option<&str>,
+    ) -> Result<ImportOutcome> {
         let name = snap
             .revision
             .source_name
@@ -336,12 +342,8 @@ impl Session {
         let (undo, redo) = self.working.as_ref().map_or((Vec::new(), Vec::new()), |w| {
             (w.undo.clone(), w.redo.clone())
         });
-        let out = self.apply_text(
-            &name,
-            &snap.source,
-            &snap.revision.encoding,
-            Some(snap.revision.id),
-        )?;
+        let bytes = decode::encode(&snap.source, &snap.revision.encoding);
+        let out = self.store_bytes(&name, &bytes, Some(Some(snap.revision.id)), label)?;
         // `apply_text`가 연 새 리비전에서 이어서 편집할 수 있게 기록을 옮긴다
         self.working = Some(Working {
             base: out.snapshot.revision.id,
@@ -351,6 +353,23 @@ impl Session {
             current: out.snapshot.source.clone(),
         });
         Ok(out)
+    }
+
+    /// 두 리비전의 차이(FR-REV-03). `before`가 이전, `after`가 이후다.
+    pub fn diff_revisions(&mut self, before: i64, after: i64) -> Result<ldf_model::Diff> {
+        let a = self.read_revision(before)?;
+        let b = self.read_revision(after)?;
+        Ok(ldf_model::diff(&a.model, &b.model))
+    }
+
+    /// 리비전을 지운다(FR-REV-05). 자식 리비전의 부모 연결은 끊긴다. 지운 뒤 DB 파일을 줄이려고 `VACUUM`을 한다.
+    pub fn delete_revision(&mut self, id: i64) -> Result<()> {
+        self.store.delete_revision(id)?;
+        if self.working.as_ref().is_some_and(|w| w.base == id) {
+            self.working = None;
+        }
+        self.store.vacuum()?;
+        Ok(())
     }
 
     /// 지금의 규칙 설정.

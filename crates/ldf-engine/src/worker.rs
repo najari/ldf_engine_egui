@@ -49,7 +49,19 @@ pub enum Command {
     /// 되돌린 것을 다시 적용한다.
     Redo,
     /// 편집한 내용을 새 리비전으로 저장한다.
-    SaveEdits,
+    SaveEdits {
+        /// 리비전 라벨(`None`이면 출처 파일 이름).
+        label: Option<String>,
+    },
+    /// 두 리비전을 비교한다(FR-REV-03).
+    DiffRevisions {
+        /// 이전 리비전.
+        before: i64,
+        /// 이후 리비전.
+        after: i64,
+    },
+    /// 리비전을 지운다(FR-REV-05).
+    DeleteRevision(i64),
     /// 규칙을 켜고 끄거나 심각도를 바꾼다(FR-CHK-06). 프로젝트에 저장하고 열린 파일을 다시 검사한다.
     SetRule {
         /// 규칙 번호.
@@ -102,6 +114,24 @@ pub enum Event {
     },
     /// 규칙 설정이 바뀌었다.
     RuleSettings(RuleSettings),
+    /// 두 리비전의 비교 결과.
+    Diffed {
+        /// 이전 리비전.
+        before: i64,
+        /// 이후 리비전.
+        after: i64,
+        /// 차이.
+        diff: Arc<ldf_model::Diff>,
+    },
+    /// 리비전을 지웠다. 열려 있던 리비전이면 `closed`가 참이다.
+    RevisionDeleted {
+        /// 지운 리비전.
+        id: i64,
+        /// 열려 있던 리비전을 지워 화면을 비워야 하는지.
+        closed: bool,
+        /// 갱신된 리비전 목록.
+        revisions: Vec<RevisionInfo>,
+    },
     /// 리비전 목록만 갱신되었다.
     Revisions(Vec<RevisionInfo>),
     /// 내보내기를 마쳤다.
@@ -240,6 +270,7 @@ fn run(
                         | Event::Saved { snapshot, .. }
                         | Event::Edited(snapshot) => current = Some(Arc::clone(snapshot)),
                         Event::ProjectOpened { .. } => current = None,
+                        Event::RevisionDeleted { closed: true, .. } => current = None,
                         _ => {}
                     }
                 }
@@ -306,6 +337,20 @@ fn handle(
             }
             Ok(events)
         }
+        Command::DiffRevisions { before, after } => Ok(vec![Event::Diffed {
+            before,
+            after,
+            diff: Arc::new(session.diff_revisions(before, after)?),
+        }]),
+        Command::DeleteRevision(id) => {
+            let closed = current.as_ref().is_some_and(|s| s.revision.id == id);
+            session.delete_revision(id)?;
+            Ok(vec![Event::RevisionDeleted {
+                id,
+                closed,
+                revisions: session.revisions()?,
+            }])
+        }
         Command::Edit(op) => {
             let snap = open_snapshot(current)?;
             Ok(vec![Event::Edited(session.edit(snap, &op)?)])
@@ -318,9 +363,9 @@ fn handle(
             let snap = open_snapshot(current)?;
             Ok(session.redo(snap).map(Event::Edited).into_iter().collect())
         }
-        Command::SaveEdits => {
+        Command::SaveEdits { label } => {
             let snap = open_snapshot(current)?;
-            let out = session.save_edits(snap)?;
+            let out = session.save_edits(snap, label.as_deref())?;
             Ok(vec![Event::Saved {
                 snapshot: out.snapshot,
                 revisions: session.revisions()?,

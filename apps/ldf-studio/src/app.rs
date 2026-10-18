@@ -4,6 +4,7 @@ use crate::fonts;
 use crate::ui::checker::CheckerAction;
 use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
+use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
 use crate::view::edit::{EncodingUi, FrameUi, NodeUi, ScheduleUi, SignalUi};
 use crate::view::{self, SelKey, Selection};
@@ -82,6 +83,8 @@ pub struct StudioApp {
     unsaved: Option<Pending>,
     /// 저장이 끝나면 이어서 할 동작.
     after_save: Option<Pending>,
+    /// 저장 라벨 입력 대화상자(열려 있으면 입력 중인 라벨).
+    save_label: Option<String>,
     /// 변경을 버리고 닫기로 확정했는지.
     allow_close: bool,
     /// 이벤트 처리 밖(동작 수행)에서 창 명령을 보내기 위한 핸들.
@@ -167,6 +170,7 @@ impl StudioApp {
             select_after_edit: None,
             unsaved: None,
             after_save: None,
+            save_label: None,
             allow_close: false,
             ctx: Some(cc.egui_ctx.clone()),
             rules: RuleSettings::default(),
@@ -343,10 +347,49 @@ impl StudioApp {
         }
     }
 
+    /// 저장 라벨을 묻는 대화상자를 연다(FR-REV-02). 확인하면 새 리비전으로 저장한다.
     fn save_edits(&mut self) {
         if self.dirty() {
-            self.busy = true;
-            self.send(Command::SaveEdits);
+            self.save_label = Some(String::new());
+        }
+    }
+
+    fn save_window(&mut self, ctx: &egui::Context) {
+        let Some(mut label) = self.save_label.take() else {
+            return;
+        };
+        let mut keep = true;
+        egui::Window::new("새 리비전으로 저장")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("이 리비전의 라벨(비우면 출처 파일 이름)");
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut label)
+                        .hint_text("예: 공급사 회신 반영")
+                        .desired_width(280.0),
+                );
+                edit.request_focus();
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("저장").clicked() || enter {
+                        let text = label.trim();
+                        self.busy = true;
+                        self.send(Command::SaveEdits {
+                            label: (!text.is_empty()).then(|| text.to_owned()),
+                        });
+                        keep = false;
+                    }
+                    if ui.button("취소").clicked() {
+                        self.after_save = None;
+                        keep = false;
+                    }
+                });
+            });
+        if keep {
+            self.save_label = Some(label);
         }
     }
 
@@ -463,6 +506,32 @@ impl StudioApp {
                 }
                 Event::Revisions(r) => self.revisions = r,
                 Event::RuleSettings(rules) => self.rules = rules,
+                Event::Diffed {
+                    before,
+                    after,
+                    diff,
+                } => {
+                    self.busy = false;
+                    self.st.revisions.diff = Some(DiffShown::new(before, after, diff));
+                }
+                Event::RevisionDeleted {
+                    closed, revisions, ..
+                } => {
+                    self.busy = false;
+                    self.revisions = revisions;
+                    self.st.revisions.diff = None;
+                    if closed {
+                        self.snapshot = None;
+                        self.title.clear();
+                        self.st.reset_for_new_model();
+                        if let Some(ctx) = &self.ctx {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                "LDF Studio".to_owned(),
+                            ));
+                        }
+                    }
+                    self.notice = Some("리비전을 삭제했다".to_owned());
+                }
                 Event::Edited(snapshot) => {
                     self.busy = false;
                     self.adopt_edit(ctx, snapshot);
@@ -628,6 +697,16 @@ impl StudioApp {
                         }
                     });
                 });
+                if ui
+                    .add_enabled(
+                        !self.revisions.is_empty(),
+                        egui::Button::new("리비전·비교…"),
+                    )
+                    .clicked()
+                {
+                    self.st.revisions.open = true;
+                    ui.close();
+                }
                 ui.separator();
                 if ui
                     .add_enabled(self.snapshot.is_some(), egui::Button::new("내보내기…"))
@@ -915,6 +994,47 @@ impl StudioApp {
             });
     }
 
+    fn revisions_window(&mut self, ctx: &egui::Context) {
+        let current = self.snapshot.as_ref().map(|s| s.revision.id);
+        let revisions = self.revisions.clone();
+        match crate::ui::revisions::show(ctx, &revisions, current, &mut self.st.revisions) {
+            Some(RevAction::Open(id)) => self.request(Pending::OpenRevision(id)),
+            Some(RevAction::Delete(id)) => {
+                self.busy = true;
+                self.send(Command::DeleteRevision(id));
+            }
+            Some(RevAction::Diff { before, after }) => {
+                self.busy = true;
+                self.send(Command::DiffRevisions { before, after });
+            }
+            Some(RevAction::SaveDiff { csv }) => {
+                if let Some(d) = &self.st.revisions.diff {
+                    let (a, b) = (format!("#{}", d.before), format!("#{}", d.after));
+                    if csv {
+                        let bytes = ldf_engine::diff_report::to_csv(&d.diff);
+                        self.save_bytes(
+                            ctx,
+                            bytes,
+                            ("CSV", "csv"),
+                            "ldf-diff.csv",
+                            "비교 결과를 CSV로 저장",
+                        );
+                    } else {
+                        let html = ldf_engine::diff_report::to_html(&d.diff, &a, &b);
+                        self.save_bytes(
+                            ctx,
+                            html.into_bytes(),
+                            ("HTML", "html"),
+                            "ldf-diff.html",
+                            "비교 결과를 HTML로 저장",
+                        );
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
     fn export_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
         match crate::ui::export::show(ctx, snap, &mut self.st.export) {
             Some(ExportAction::Choose(options)) => {
@@ -940,18 +1060,36 @@ impl StudioApp {
 
     /// 보고서를 CSV로 저장한다. 파일 대화상자는 별도 스레드에서 띄운다.
     fn save_csv(&mut self, ctx: &egui::Context, bytes: Vec<u8>) {
+        self.save_bytes(
+            ctx,
+            bytes,
+            ("CSV", "csv"),
+            "check-report.csv",
+            "검사 보고서 저장",
+        );
+    }
+
+    /// 바이트를 사용자가 고른 파일에 쓴다(대화상자는 별도 스레드). 결과는 알림 줄로 보인다.
+    fn save_bytes(
+        &mut self,
+        ctx: &egui::Context,
+        bytes: Vec<u8>,
+        filter: (&'static str, &'static str),
+        default_name: &'static str,
+        title: &'static str,
+    ) {
         let tx = self.msg_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new()
-                .add_filter("CSV", &["csv"])
-                .set_file_name("check-report.csv")
-                .set_title("검사 보고서 저장")
+                .add_filter(filter.0, &[filter.1])
+                .set_file_name(default_name)
+                .set_title(title)
                 .save_file();
             if let Some(path) = picked {
                 let msg = match std::fs::write(&path, bytes) {
-                    Ok(()) => format!("보고서를 저장했다: {}", path.display()),
-                    Err(e) => format!("보고서를 저장하지 못했다: {e}"),
+                    Ok(()) => format!("저장했다: {}", path.display()),
+                    Err(e) => format!("저장하지 못했다: {e}"),
                 };
                 let _ = tx.send(msg);
                 ctx.request_repaint();
@@ -1100,9 +1238,11 @@ impl eframe::App for StudioApp {
             self.export_window(&ctx, &snap);
             self.edit_window(&ctx, &snap);
             self.unsaved_window(&ctx);
+            self.save_window(&ctx);
         } else {
             self.welcome(ui);
         }
+        self.revisions_window(&ctx);
         if self.show_perf {
             let ms = started.elapsed().as_secs_f32() * 1000.0;
             self.perf = Some(self.perf.map_or(ms, |p| p * 0.9 + ms * 0.1));

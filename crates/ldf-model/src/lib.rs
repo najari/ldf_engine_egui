@@ -8,6 +8,7 @@
 //! (`ldf-syntax`는 어떤 내부 크레이트에도 의존하지 않는다).
 
 mod arena;
+mod diff;
 mod edit;
 mod json;
 mod lower;
@@ -16,6 +17,7 @@ mod semantic;
 mod types;
 
 pub use arena::{Arena, ArenaId, EncodingId, FrameId, NodeId, ScheduleId, SignalId};
+pub use diff::{Change, Diff, DiffEntry, FieldChange, ObjectKind, diff};
 pub use edit::{AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft};
 pub use json::{JSON_VERSION, to_json, to_json_string};
 pub use ldf_syntax::{Diagnostic, LineIndex, Severity, Span, codes};

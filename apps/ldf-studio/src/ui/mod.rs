@@ -8,6 +8,7 @@ pub mod editor;
 pub mod export;
 pub mod nav;
 pub mod props;
+pub mod revisions;
 pub mod schedule;
 pub mod status;
 
@@ -79,6 +80,8 @@ pub struct UiState {
     pub export: export::ExportState,
     /// 편집 대화상자.
     pub edit: edit::EditState,
+    /// 리비전 창.
+    pub revisions: revisions::RevState,
     /// 내비게이션에서 항목을 더블클릭(또는 Enter)해 편집을 열라는 요청.
     pub activate: bool,
     /// 내비게이션에서 Delete 키로 삭제를 열라는 요청.

@@ -1,6 +1,6 @@
 [package]
 name = "ldf-cli"
-description = "LDF 배치 검사·변환 CLI"
+description = "LDF 배치 검사·비교·변환 CLI"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

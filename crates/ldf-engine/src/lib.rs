@@ -6,6 +6,7 @@
 
 mod analysis;
 pub mod decode;
+pub mod diff_report;
 mod error;
 mod export;
 mod session;
