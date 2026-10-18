@@ -18,6 +18,12 @@ allow = [
     "CC0-1.0",
 ]
 confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# egui 기본 글꼴(Hack, Ubuntu, Noto 이모지)을 담은 크레이트만 글꼴 라이선스를 허용한다.
+# 글꼴 파일에만 해당하는 허용형 라이선스이며, PRD NFR-06 허용 목록 밖이므로 예외로 명시한다.
+exceptions = [
+    { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
+]
 # 워크스페이스 자체 크레이트는 라이선스 미정(PRD 오픈 이슈).
 private = { ignore = true }
 
