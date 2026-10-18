@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# 프로젝트 DB (고객 LDF가 들어 있을 수 있음)
+*.ldfdb
+*.ldfdb-wal
+*.ldfdb-shm
+
+# Vector LDF Explorer 동봉 테스트 파일은 상용 제품 동봉물이므로 커밋 금지 (NFR-06)
+/tests/vector-testfiles/
+/vector-testfiles/
+
+# 에디터·OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
