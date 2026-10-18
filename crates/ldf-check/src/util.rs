@@ -1,8 +1,8 @@
 //! 규칙들이 함께 쓰는 도우미: LIN 버전 판별, 이름 표시, 진단 생성, 비트 배치 계산.
 
 use ldf_model::{
-    Diagnostic, EncodingId, Frame, FrameId, FrameKind, FrameSignal, LdfModel, NodeId, NodeRole,
-    Ref, Severity, SignalId, Span,
+    Diagnostic, Frame, FrameId, FrameKind, FrameSignal, LdfModel, NodeId, NodeRole, Ref, Severity,
+    SignalId, Span,
 };
 
 /// LDF(또는 슬레이브 노드)가 따르는 LIN 계열.
@@ -43,11 +43,6 @@ impl Proto {
             t if t.starts_with("J2602") => Proto::Unknown,
             t => Self::parse_protocol(t),
         }
-    }
-
-    /// LIN 2.1 이상 방식(`initial_NAD`, 메시지 ID 없는 `configurable_frames` 등)을 쓰는지.
-    pub(crate) fn is_2_1_style(self) -> bool {
-        matches!(self, Proto::V2_1 | Proto::V2_2 | Proto::Iso)
     }
 
     /// 2.x 방식의 노드 속성이 필요한지(1.3·OEM은 불필요).
@@ -132,21 +127,6 @@ pub(crate) fn frame_label(m: &LdfModel, r: &Ref<FrameId>) -> String {
             .map_or_else(|| "?".to_owned(), |f| f.name.clone()),
         Ref::Unresolved(n) => n.clone(),
     }
-}
-
-pub(crate) fn encoding_label(m: &LdfModel, r: &Ref<EncodingId>) -> String {
-    match r {
-        Ref::Resolved(id) => m
-            .encodings
-            .get(*id)
-            .map_or_else(|| "?".to_owned(), |e| e.name.clone()),
-        Ref::Unresolved(n) => n.clone(),
-    }
-}
-
-/// 노드 이름으로 노드를 찾는다(같은 이름이 여럿이면 첫 번째).
-pub(crate) fn find_node<'a>(m: &'a LdfModel, name: &str) -> Option<(NodeId, &'a ldf_model::Node)> {
-    m.nodes.iter().find(|(_, n)| n.name == name)
 }
 
 /// 노드가 마스터인지.

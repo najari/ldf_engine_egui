@@ -27,6 +27,9 @@ impl Rule for R0108 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m).is_some() {
+            out.push(super::cascade_diag(108, Severity::Error));
+        }
         for a in &m.node_attrs {
             let is_slave = a
                 .node

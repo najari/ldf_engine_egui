@@ -53,6 +53,9 @@ impl Rule for R0104 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m).is_some() {
+            out.push(super::cascade_diag(104, Severity::Error));
+        }
         for a in &m.node_attrs {
             let is_slave = a
                 .node
@@ -101,7 +104,10 @@ mod tests {
         assert_eq!(n("2.2", &FULL.replace("product_id = 1, 2;", "")), 1);
         assert_eq!(n("2.2", &FULL.replace("P2_min = 50 ms;", "")), 1);
         assert_eq!(n("1.3", ""), 0);
-        let j2602 = FULL.replace("P2_min = 50 ms; ST_min = 0 ms;", "");
+        // J2602는 메시지 ID 표기(`= ID`)를 쓴다
+        let j2602 = FULL
+            .replace("P2_min = 50 ms; ST_min = 0 ms;", "")
+            .replace("{ F; }", "{ F = 1; }");
         assert_eq!(n("J2602_1_1.0", &j2602), 0);
     }
 }

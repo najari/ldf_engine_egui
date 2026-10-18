@@ -104,6 +104,14 @@ mod tests {
         Signals { S: 8, 0, A, M; }\n\
         Frames { F: 1, A, 1 { S, 0; } }\n";
 
+    /// 검사기가 지적할 만한 최소 예제라 오류 확인은 건너뛴다(차단 동작은 별도 시험이 본다).
+    fn lenient() -> ExportOptions {
+        ExportOptions {
+            allow_errors: true,
+            ..ExportOptions::default()
+        }
+    }
+
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ldf-engine-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
@@ -120,9 +128,7 @@ mod tests {
             .revision
             .id;
         let path = temp("a.ldf");
-        let r = s
-            .export(id, &path, &ExportOptions::default())
-            .expect("export");
+        let r = s.export(id, &path, &lenient()).expect("export");
         assert!(r.verified, "{:?}", r.warnings);
         assert!(r.warnings.is_empty());
         let back = std::fs::read_to_string(&path).expect("read");
@@ -170,7 +176,7 @@ mod tests {
             target: Target::V2_0,
             eol: Eol::CrLf,
             encoding: Some(decode::CP1252.to_owned()),
-            allow_errors: false,
+            allow_errors: true,
         };
         let r = s.export(id, &path, &opts).expect("export");
         assert!(
@@ -201,7 +207,7 @@ mod tests {
         let path = temp("k.ldf");
         let opts = ExportOptions {
             encoding: Some(decode::CP1252.to_owned()),
-            ..ExportOptions::default()
+            ..lenient()
         };
         let r = s.export(id, &path, &opts).expect("export");
         assert!(

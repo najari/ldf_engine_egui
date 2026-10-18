@@ -1,4 +1,4 @@
-//! 규칙 0404: 노드의 `fault_state_signals`가 그 노드가 보내는 프레임에 들어 있지 않다.
+//! 규칙 0404: 노드의 `fault_state_signals`가 그 노드가 보내는 프레임에 들어 있지 않거나, `response_error`와 같은 시그널이다.
 
 use super::r0402_publisher_mapping::sent_by;
 use crate::Rule;
@@ -24,9 +24,28 @@ impl Rule for R0404 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m).is_some() {
+            out.push(super::cascade_diag(404, Severity::Warning));
+        }
         for a in &m.node_attrs {
             let Some(node) = a.node.id() else { continue };
             for r in &a.fault_state_signals {
+                if r.id().is_some()
+                    && a.response_error
+                        .as_ref()
+                        .is_some_and(|re| re.id() == r.id())
+                {
+                    out.push(diag(
+                        Severity::Warning,
+                        404,
+                        a.span,
+                        format!(
+                            "노드 `{}`의 response_error 시그널 `{}`이(가) fault_state_signals에도 있다",
+                            node_label(m, &a.node),
+                            signal_label(m, r)
+                        ),
+                    ));
+                }
                 if let Some(sid) = r.id()
                     && !sent_by(m, node, sid)
                 {

@@ -34,6 +34,9 @@ impl Rule for R0402 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m).is_some() {
+            out.push(super::cascade_diag(402, Severity::Warning));
+        }
         for (sid, s) in m.signals.iter() {
             if s.kind != SignalKind::Normal {
                 continue;

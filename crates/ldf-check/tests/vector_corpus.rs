@@ -18,9 +18,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// HowTo 규칙(normal = 부분 멀티셋)으로 센 전체 일치율의 하한(%). 올라가면 같이 올린다.
-const MIN_PASS_PERCENT: f64 = 0.0;
+const MIN_PASS_PERCENT: f64 = 95.0;
 /// 기대 멀티셋과 실제 멀티셋이 정확히 같은 파일 비율의 하한(%). 정밀도 회귀를 잡는다.
-const MIN_EXACT_PERCENT: f64 = 0.0;
+const MIN_EXACT_PERCENT: f64 = 50.0;
 
 type Multiset = BTreeMap<u16, usize>;
 

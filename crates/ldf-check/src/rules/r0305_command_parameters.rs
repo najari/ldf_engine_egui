@@ -1,7 +1,7 @@
 //! 규칙 0305: 스케줄 진단 명령의 인자가 범위를 벗어났거나, 이 버전에서는 해석할 수 없는 명령이다.
 //!
 //! - `FreeFormat`·`DataDump`·`ConditionalChangeNAD`의 바이트는 0–255.
-//! - LIN 2.0 형식 `AssignNAD { nad, 공급자, 기능, 새 nad }`의 NAD는 1–125, 공급자 ≤ 0x7FFF, 기능 ≤ 0xFFFF.
+//! - LIN 2.0 형식 `AssignNAD { nad, 새 nad, 공급자, 기능 }`의 NAD는 1–125, 공급자 ≤ 0x7FFF, 기능 ≤ 0xFFFF.
 //! - `AssignFrameIdRange`의 PID는 0–255.
 //! - 버전에 맞지 않는 명령(0106)은 인자를 해석할 수 없다.
 
@@ -55,37 +55,46 @@ impl Rule for R0305 {
                     continue;
                 }
                 match &slot.entry {
-                    SlotEntry::FreeFormat { data } | SlotEntry::DataDump { data, .. }
-                        if data.iter().any(|v| *v > 255) =>
-                    {
-                        bad(format!("{name}의 바이트가 0–255를 벗어났다"));
+                    SlotEntry::FreeFormat { data } | SlotEntry::DataDump { data, .. } => {
+                        for v in data.iter().filter(|v| **v > 255) {
+                            bad(format!("{name}의 바이트 {v}이(가) 0–255를 벗어났다"));
+                        }
                     }
-                    SlotEntry::ConditionalChangeNad { args } if args.iter().any(|v| *v > 255) => {
-                        bad("ConditionalChangeNAD의 인자가 0–255를 벗어났다".to_owned());
+                    SlotEntry::ConditionalChangeNad { args } => {
+                        for v in args.iter().filter(|v| **v > 255) {
+                            bad(format!(
+                                "ConditionalChangeNAD의 인자 {v}이(가) 0–255를 벗어났다"
+                            ));
+                        }
                     }
-                    SlotEntry::AssignFrameIdRange { pids, .. } if pids.iter().any(|v| *v > 255) => {
-                        bad("AssignFrameIdRange의 PID가 0–255를 벗어났다".to_owned());
+                    SlotEntry::AssignFrameIdRange { pids, .. } => {
+                        for v in pids.iter().filter(|v| **v > 255) {
+                            bad(format!(
+                                "AssignFrameIdRange의 PID {v}이(가) 0–255를 벗어났다"
+                            ));
+                        }
                     }
                     SlotEntry::Unknown(raw) => {
                         let nums: Vec<Option<i128>> =
                             command_args(raw).iter().map(|a| parse_int(a)).collect();
                         match name.as_str() {
                             "FreeFormat" | "DataDump" => {
-                                if nums.iter().flatten().any(|v| !byte_ok(*v)) {
-                                    bad(format!("{name}의 바이트가 0–255를 벗어났다"));
+                                for v in nums.iter().flatten().filter(|v| !byte_ok(**v)) {
+                                    bad(format!("{name}의 바이트 {v}이(가) 0–255를 벗어났다"));
                                 }
                             }
+                            // LIN 2.0 형식: { NAD, 새 NAD, 공급자 ID, 기능 ID }
                             "AssignNAD" if legacy => {
                                 let get = |i: usize| nums.get(i).copied().flatten();
-                                let nad_bad =
-                                    |v: Option<i128>| v.is_some_and(|v| !(1..=125).contains(&v));
-                                if nad_bad(get(0)) || nad_bad(get(3)) {
-                                    bad("AssignNAD의 NAD가 1–125를 벗어났다".to_owned());
+                                for i in [0, 1] {
+                                    if get(i).is_some_and(|v| !(1..=125).contains(&v)) {
+                                        bad("AssignNAD의 NAD가 1–125를 벗어났다".to_owned());
+                                    }
                                 }
-                                if get(1).is_some_and(|v| !(0..=0x7FFF).contains(&v)) {
+                                if get(2).is_some_and(|v| !(0..=0x7FFF).contains(&v)) {
                                     bad("AssignNAD의 공급자 ID가 범위를 벗어났다".to_owned());
                                 }
-                                if get(2).is_some_and(|v| !(0..=0xFFFF).contains(&v)) {
+                                if get(3).is_some_and(|v| !(0..=0xFFFF).contains(&v)) {
                                     bad("AssignNAD의 기능 ID가 범위를 벗어났다".to_owned());
                                 }
                             }

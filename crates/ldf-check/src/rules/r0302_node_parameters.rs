@@ -26,16 +26,13 @@ impl Rule for R0302 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m).is_some() {
+            out.push(super::cascade_diag(302, Severity::Error));
+        }
         for a in &m.node_attrs {
             let name = node_label(m, &a.node);
-            let mut bad = |what: String| {
-                out.push(diag(
-                    Severity::Error,
-                    302,
-                    a.span,
-                    format!("노드 `{name}`의 {what}이(가) 범위를 벗어났다"),
-                ));
-            };
+            let mut found: Vec<String> = Vec::new();
+            let mut range = |what: String| found.push(format!("{what}이(가) 범위를 벗어났다"));
             for (label, nad) in [
                 ("configured_NAD", a.configured_nad),
                 ("initial_NAD", a.initial_nad),
@@ -43,20 +40,20 @@ impl Rule for R0302 {
                 if let Some(v) = nad
                     && !(1..=125).contains(&v)
                 {
-                    bad(format!("{label} {v:#04X}"));
+                    range(format!("{label} {v:#04X}"));
                 }
             }
             if let Some(p) = &a.product_id {
                 if p.supplier > 0x7FFF {
-                    bad(format!("공급자 ID {:#X}", p.supplier));
+                    range(format!("공급자 ID {:#X}", p.supplier));
                 }
                 if p.function > 0xFFFF {
-                    bad(format!("기능 ID {:#X}", p.function));
+                    range(format!("기능 ID {:#X}", p.function));
                 }
                 if let Some(v) = p.variant
                     && v > 255
                 {
-                    bad(format!("변형 ID {v}"));
+                    range(format!("변형 ID {v}"));
                 }
             }
             let j2602 = attr_proto(m, a.lin_protocol.as_deref()) == Proto::J2602;
@@ -64,15 +61,23 @@ impl Rule for R0302 {
                 && !j2602
                 && !(50.0..=500.0).contains(&p2)
             {
-                bad(format!("P2_min {p2} ms"));
+                range(format!("P2_min {p2} ms"));
             }
             for c in &a.configurable_frames {
                 if let Some(id) = c.message_id
                     && !j2602
                     && !(1..=0xFFFE).contains(&id)
                 {
-                    bad(format!("메시지 ID {id:#X}"));
+                    range(format!("메시지 ID {id:#X}"));
                 }
+            }
+            for msg in found {
+                out.push(diag(
+                    Severity::Error,
+                    302,
+                    a.span,
+                    format!("노드 `{name}`의 {msg}"),
+                ));
             }
         }
     }

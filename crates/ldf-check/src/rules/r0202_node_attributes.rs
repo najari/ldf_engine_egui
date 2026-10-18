@@ -29,6 +29,9 @@ impl Rule for R0202 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        if super::attribute_format_cascade(m) == Some(true) {
+            out.push(super::cascade_diag(202, Severity::Error));
+        }
         let file = file_proto(m);
 
         // 메시지 ID는 노드 안에서 프레임마다 달라야 한다(같은 프레임의 ID가 노드마다 다른 것은 허용)

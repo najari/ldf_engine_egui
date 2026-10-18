@@ -12,6 +12,7 @@
 
 use super::r0106_commands::command_name;
 use crate::Rule;
+use crate::raw::command_args;
 use crate::util::{Proto, attr_proto, diag, file_proto, frame_label, node_label};
 use ldf_model::{
     Diagnostic, FrameId, FrameKind, LdfModel, NodeId, Ref, ScheduleId, Severity, SlotEntry,
@@ -34,12 +35,10 @@ fn configurable(m: &LdfModel, node: NodeId) -> Option<Vec<FrameId>> {
     if a.configurable_frames.is_empty() {
         return None;
     }
-    Some(
-        a.configurable_frames
-            .iter()
-            .map(|c| c.frame.id())
-            .collect::<Option<Vec<_>>>()?,
-    )
+    a.configurable_frames
+        .iter()
+        .map(|c| c.frame.id())
+        .collect::<Option<Vec<_>>>()
 }
 
 fn associated_of(m: &LdfModel, f: FrameId) -> Vec<FrameId> {
@@ -204,6 +203,35 @@ impl Rule for R0201 {
                     }
                     _ => {}
                 }
+                // UnassignFrameId·AssignFrameId(원문): 노드의 configurable_frames에 있는 프레임이어야 한다
+                if let SlotEntry::Unknown(raw) = &slot.entry
+                    && let Some((name, _)) = command_name(&slot.entry)
+                    && matches!(name.as_str(), "UnassignFrameId" | "AssignFrameId")
+                {
+                    let args = command_args(raw);
+                    let node = args
+                        .first()
+                        .and_then(|n| m.nodes.iter().find(|(_, x)| x.name == *n).map(|(id, _)| id));
+                    let frame = args.get(1).and_then(|f| {
+                        m.frames
+                            .iter()
+                            .find(|(_, x)| x.name == *f)
+                            .map(|(id, _)| id)
+                    });
+                    if let (Some(node), Some(frame)) = (node, frame)
+                        && let Some(list) = configurable(m, node)
+                        && !list.contains(&frame)
+                    {
+                        err(
+                            out,
+                            slot.span,
+                            format!(
+                                "스케줄 `{}`의 {name} 대상 `{}`이(가) 노드의 configurable_frames에 없다",
+                                t.name, args[1]
+                            ),
+                        );
+                    }
+                }
                 // LIN 2.0 노드에 2.1 이후 명령을 보낸다
                 let target = match &slot.entry {
                     SlotEntry::AssignFrameIdRange { node, .. }
@@ -237,7 +265,7 @@ impl Rule for R0201 {
             }
         }
 
-        // 충돌 해결 테이블은 연관 프레임을 모두 담아야 한다
+        // 충돌 해결 테이블은 연관 프레임을 모두 담아야 하고, 스포라딕·이벤트 트리거 프레임이나 명령을 담을 수 없다
         for (_, f) in m.frames.iter() {
             let FrameKind::EventTriggered {
                 collision_table: Some(ct),
@@ -247,7 +275,8 @@ impl Rule for R0201 {
             else {
                 continue;
             };
-            let Some(set) = ct.id().and_then(|id| in_table.get(&id)) else {
+            let Some(table) = ct.id() else { continue };
+            let Some(set) = in_table.get(&table) else {
                 continue;
             };
             for a in associated
@@ -264,10 +293,36 @@ impl Rule for R0201 {
                     ),
                 );
             }
+            for slot in m
+                .schedules
+                .get(table)
+                .map_or(&[][..], |t| t.slots.as_slice())
+            {
+                let not_allowed = match &slot.entry {
+                    SlotEntry::Frame(r) => {
+                        r.id().and_then(|id| m.frames.get(id)).is_some_and(|g| {
+                            matches!(
+                                g.kind,
+                                FrameKind::Sporadic { .. } | FrameKind::EventTriggered { .. }
+                            )
+                        })
+                    }
+                    _ => true,
+                };
+                if not_allowed {
+                    err(
+                        out,
+                        slot.span,
+                        format!(
+                            "이벤트 트리거 프레임 `{}`의 충돌 해결 테이블에 무조건 프레임이 아닌 슬롯이 있다",
+                            f.name
+                        ),
+                    );
+                }
+            }
         }
     }
 }
-
 impl R0201 {
     #[allow(clippy::too_many_arguments)]
     fn frame_id_range(

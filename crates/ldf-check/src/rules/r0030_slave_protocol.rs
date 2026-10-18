@@ -41,7 +41,16 @@ impl Rule for R0030 {
     }
 
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
-        let file = file_proto(m);
+        let mut file = file_proto(m);
+        // 버전 문자열이 틀려도(J2602_1_1.1) J2602 계열이라는 것은 알 수 있다
+        if file == Proto::Unknown
+            && m.header
+                .protocol_version
+                .as_deref()
+                .is_some_and(|v| v.starts_with("J2602"))
+        {
+            file = Proto::J2602;
+        }
         for a in &m.node_attrs {
             let Some(s) = a.lin_protocol.as_deref() else {
                 continue;

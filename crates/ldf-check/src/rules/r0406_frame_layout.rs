@@ -2,8 +2,13 @@
 //! 이벤트 트리거 연관 프레임의 첫 바이트 사용).
 
 use crate::Rule;
-use crate::util::{big_endian, bit_spans, bytes_touched, diag, etf_associated, unconditional};
-use ldf_model::{Diagnostic, InitValue, LdfModel, Severity};
+use crate::raw::dynamic_frame_ids;
+use crate::util::{
+    Proto, attr_proto, big_endian, bit_spans, bytes_touched, diag, etf_associated, file_proto,
+    frame_label, unconditional,
+};
+use ldf_model::{Diagnostic, FrameKind, InitValue, LdfModel, NodeId, Ref, Severity};
+use std::collections::BTreeMap;
 
 /// 규칙 0406.
 pub(crate) struct R0406;
@@ -31,8 +36,61 @@ impl Rule for R0406 {
     fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
         let be = big_endian(m);
         let etf = etf_associated(m);
+        let dynamic = dynamic_frame_ids(m);
+        // 속성 블록이 없는 노드는 파일의 버전을 따른다
+        let is_1_3 = |r: &Ref<NodeId>| match m.node_attrs.iter().find(|a| a.node == *r) {
+            Some(a) if a.lin_protocol.is_some() => {
+                attr_proto(m, a.lin_protocol.as_deref()) == Proto::V1_3
+            }
+            _ => file_proto(m) == Proto::V1_3,
+        }; // 이벤트 트리거 프레임의 연관 프레임은 서로 다른 노드가 보내야 한다
+        for (_, g) in m.frames.iter() {
+            let FrameKind::EventTriggered { associated, .. } = &g.kind else {
+                continue;
+            };
+            let mut by_publisher: BTreeMap<Option<NodeId>, Vec<&Ref<ldf_model::FrameId>>> =
+                BTreeMap::new();
+            for r in associated {
+                if let Some(FrameKind::Unconditional { publisher, .. }) =
+                    r.id().and_then(|id| m.frames.get(id)).map(|f| &f.kind)
+                {
+                    by_publisher.entry(publisher.id()).or_default().push(r);
+                }
+            }
+            for refs in by_publisher.values().filter(|v| v.len() > 1) {
+                for r in refs {
+                    out.push(diag(
+                        Severity::Warning,
+                        406,
+                        g.span,
+                        format!(
+                            "이벤트 트리거 프레임 `{}`의 연관 프레임 `{}`을(를) 다른 연관 프레임과 같은 노드가 보낸다",
+                            g.name,
+                            frame_label(m, r)
+                        ),
+                    ));
+                }
+            }
+        }
         for f in unconditional(m) {
             let name = &f.frame.name;
+            // LIN 2.0 동적 프레임은 LIN 1.3 노드가 발행하거나 구독할 수 없다
+            if dynamic.contains(&u64::from(f.lin_id)) {
+                let subscribers = f
+                    .signals
+                    .iter()
+                    .filter_map(|fs| fs.signal.id().and_then(|id| m.signals.get(id)));
+                let involved = std::iter::once(f.publisher)
+                    .chain(subscribers.flat_map(|s| s.subscribers.iter()));
+                if involved.into_iter().any(&is_1_3) {
+                    out.push(diag(
+                        Severity::Warning,
+                        406,
+                        f.frame.span,
+                        format!("동적 프레임 `{name}`을(를) LIN 1.3 노드가 발행하거나 구독한다"),
+                    ));
+                }
+            }
             let bits = u64::from(f.size) * 8;
             // (시그널 이름, 비트 구간)
             let mut placed: Vec<(String, Vec<(u64, u64)>)> = Vec::new();
