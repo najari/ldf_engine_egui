@@ -17,6 +17,9 @@ pub use export::{ExportOptions, ExportReport};
 pub use session::{ImportOutcome, ModelSnapshot, Session};
 pub use worker::{Command, Engine, Event};
 
+pub use ldf_model::{
+    AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft,
+};
 /// UI가 리비전을 표시하는 데 쓰는 요약 타입(저장소 크레이트를 직접 알 필요가 없도록 다시 내보낸다).
 pub use ldf_store::RevisionInfo;
 pub use ldf_writer::{Eol, Target};

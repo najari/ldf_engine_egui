@@ -73,6 +73,11 @@ impl<I: ArenaId, T> Arena<I, T> {
         id
     }
 
+    /// 항목을 빼낸다. 뒤에 있던 항목의 ID는 하나씩 당겨지므로, 호출한 쪽이 그 ID를 가리키는 참조를 고쳐야 한다.
+    pub fn remove(&mut self, id: I) -> Option<T> {
+        (id.index() < self.items.len()).then(|| self.items.remove(id.index()))
+    }
+
     /// 항목 수.
     pub fn len(&self) -> usize {
         self.items.len()

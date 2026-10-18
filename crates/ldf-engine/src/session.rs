@@ -1,10 +1,11 @@
 //! 동기 세션: 프로젝트 DB 하나와 그 위의 임포트·열기. 워커 스레드, CLI, 테스트가 함께 쓴다.
 
-use crate::analysis::analyze;
+use crate::analysis::{analyze, analyze_text};
 use crate::decode;
 use crate::error::{EngineError, Result};
-use ldf_model::{Diagnostic, LdfModel, LineIndex};
+use ldf_model::{Diagnostic, EditOp, LdfModel, LineIndex};
 use ldf_store::{NewRevision, RevisionInfo, Store, StoredRevision};
+use ldf_writer::{Eol, WriteOptions, write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -23,6 +24,12 @@ pub struct ModelSnapshot {
     pub source: String,
     /// `Span` -> 줄·열 변환용 색인.
     pub line_index: LineIndex,
+    /// 마지막으로 저장(또는 연) 이후 편집이 있는지.
+    pub dirty: bool,
+    /// Undo할 수 있는지.
+    pub can_undo: bool,
+    /// Redo할 수 있는지.
+    pub can_redo: bool,
 }
 
 impl ModelSnapshot {
@@ -47,7 +54,26 @@ pub struct Session {
     project_id: i64,
     path: Option<PathBuf>,
     version: u64,
+    working: Option<Working>,
 }
+
+/// 편집 중인 상태. Undo/Redo는 편집 전후의 텍스트를 보관해 처리한다: 되돌린 결과는 그 텍스트를 다시 읽은 것과 같고,
+/// 텍스트가 같으면 모델·진단·위치가 모두 같으므로 어떤 연산이든 대칭이 보장된다.
+struct Working {
+    /// 편집의 바탕이 된 리비전.
+    base: i64,
+    /// 저장(또는 열기) 시점의 텍스트. 현재 텍스트와 같으면 변경이 없는 것이다.
+    saved: String,
+    undo: Vec<String>,
+    redo: Vec<String>,
+    /// 현재 텍스트(스냅샷의 `source`와 같다).
+    current: String,
+}
+
+/// Undo 단계 수의 상한(PRD FR-EDT-08: 최소 100단계).
+const MAX_UNDO: usize = 200;
+/// Undo 스택이 쓰는 텍스트 총량의 상한(바이트). 이를 넘으면 오래된 단계부터 버린다.
+const MAX_UNDO_BYTES: usize = 128 * 1024 * 1024;
 
 impl Session {
     /// 프로젝트 파일을 열고(없으면 만들고) 첫 프로젝트를 준비한다.
@@ -65,6 +91,7 @@ impl Session {
             project_id,
             path: Some(path.to_owned()),
             version: 0,
+            working: None,
         })
     }
 
@@ -77,6 +104,7 @@ impl Session {
             project_id,
             path: None,
             version: 0,
+            working: None,
         })
     }
 
@@ -176,6 +204,13 @@ impl Session {
         } = self.store.load_revision(id)?;
         let text = decode::decode(&source, &info.encoding);
         self.version += 1;
+        self.working = Some(Working {
+            base: info.id,
+            saved: text.clone(),
+            undo: Vec::new(),
+            redo: Vec::new(),
+            current: text.clone(),
+        });
         Ok(Arc::new(ModelSnapshot {
             version: self.version,
             line_index: LineIndex::new(&text),
@@ -183,12 +218,151 @@ impl Session {
             revision: info,
             model,
             diagnostics,
+            dirty: false,
+            can_undo: false,
+            can_redo: false,
         }))
+    }
+
+    /// 편집 상태가 `snap`의 것인지 확인하고, 아니면 `snap`을 바탕으로 새로 시작한다.
+    fn working_for(&mut self, snap: &ModelSnapshot) -> &mut Working {
+        let stale = self
+            .working
+            .as_ref()
+            .is_none_or(|w| w.base != snap.revision.id || w.current != snap.source);
+        if stale {
+            self.working = Some(Working {
+                base: snap.revision.id,
+                saved: snap.source.clone(),
+                undo: Vec::new(),
+                redo: Vec::new(),
+                current: snap.source.clone(),
+            });
+        }
+        self.working
+            .get_or_insert_with(|| unreachable_working(snap))
+    }
+
+    /// 텍스트로 스냅샷을 만든다(편집·Undo·Redo가 공유한다).
+    fn snapshot_from_text(&mut self, base: &ModelSnapshot, text: String) -> Arc<ModelSnapshot> {
+        let encoding = match base.revision.encoding.as_str() {
+            decode::CP1252 => decode::CP1252,
+            decode::UTF8_BOM => decode::UTF8_BOM,
+            _ => decode::UTF8,
+        };
+        let analysis = analyze_text(text, encoding);
+        self.version += 1;
+        let (dirty, can_undo, can_redo) =
+            self.working.as_ref().map_or((false, false, false), |w| {
+                (w.current != w.saved, !w.undo.is_empty(), !w.redo.is_empty())
+            });
+        Arc::new(ModelSnapshot {
+            version: self.version,
+            line_index: LineIndex::new(&analysis.text),
+            source: analysis.text,
+            revision: base.revision.clone(),
+            model: analysis.model,
+            diagnostics: analysis.diagnostics,
+            dirty,
+            can_undo,
+            can_redo,
+        })
+    }
+
+    /// 편집 연산을 적용한다. 모델을 고쳐 텍스트로 쓰고 다시 읽어, 위치와 진단이 맞는 새 스냅샷을 만든다.
+    /// 실패하면 아무것도 바뀌지 않는다.
+    pub fn edit(&mut self, snap: &ModelSnapshot, op: &EditOp) -> Result<Arc<ModelSnapshot>> {
+        let mut model = snap.model.clone();
+        op.apply(&mut model)?;
+        let eol = if snap.source.contains("\r\n") {
+            Eol::CrLf
+        } else {
+            Eol::Lf
+        };
+        let text = write(
+            &model,
+            &WriteOptions {
+                eol,
+                ..WriteOptions::default()
+            },
+        )
+        .text;
+        let w = self.working_for(snap);
+        w.undo.push(std::mem::replace(&mut w.current, text.clone()));
+        w.redo.clear();
+        trim_undo(&mut w.undo);
+        Ok(self.snapshot_from_text(snap, text))
+    }
+
+    /// 한 단계 되돌린다. 되돌릴 것이 없으면 `None`.
+    pub fn undo(&mut self, snap: &ModelSnapshot) -> Option<Arc<ModelSnapshot>> {
+        let w = self.working_for(snap);
+        let prev = w.undo.pop()?;
+        w.redo.push(std::mem::replace(&mut w.current, prev.clone()));
+        Some(self.snapshot_from_text(snap, prev))
+    }
+
+    /// 되돌린 것을 다시 적용한다. 다시 할 것이 없으면 `None`.
+    pub fn redo(&mut self, snap: &ModelSnapshot) -> Option<Arc<ModelSnapshot>> {
+        let w = self.working_for(snap);
+        let next = w.redo.pop()?;
+        w.undo.push(std::mem::replace(&mut w.current, next.clone()));
+        Some(self.snapshot_from_text(snap, next))
+    }
+
+    /// 편집한 내용을 새 리비전으로 저장한다(바탕 리비전이 부모). Undo 기록은 유지한다.
+    pub fn save_edits(&mut self, snap: &ModelSnapshot) -> Result<ImportOutcome> {
+        let name = snap
+            .revision
+            .source_name
+            .clone()
+            .unwrap_or_else(|| snap.revision.label.clone());
+        let (undo, redo) = self.working.as_ref().map_or((Vec::new(), Vec::new()), |w| {
+            (w.undo.clone(), w.redo.clone())
+        });
+        let out = self.apply_text(
+            &name,
+            &snap.source,
+            &snap.revision.encoding,
+            Some(snap.revision.id),
+        )?;
+        // `apply_text`가 연 새 리비전에서 이어서 편집할 수 있게 기록을 옮긴다
+        self.working = Some(Working {
+            base: out.snapshot.revision.id,
+            saved: out.snapshot.source.clone(),
+            undo,
+            redo,
+            current: out.snapshot.source.clone(),
+        });
+        Ok(out)
     }
 
     /// 저장소 무결성 검사.
     pub fn check_integrity(&self) -> Result<()> {
         Ok(self.store.check_integrity()?)
+    }
+}
+
+/// `working_for`가 방금 값을 채웠으므로 비어 있을 수 없지만, 패닉하지 않고 새로 만든다.
+fn unreachable_working(snap: &ModelSnapshot) -> Working {
+    Working {
+        base: snap.revision.id,
+        saved: snap.source.clone(),
+        undo: Vec::new(),
+        redo: Vec::new(),
+        current: snap.source.clone(),
+    }
+}
+
+/// 단계 수와 총 크기 상한을 넘으면 오래된 단계부터 버린다.
+fn trim_undo(undo: &mut Vec<String>) {
+    while undo.len() > MAX_UNDO {
+        undo.remove(0);
+    }
+    let mut bytes: usize = undo.iter().map(String::len).sum();
+    // 최소 100단계는 지키되, 그 이상은 크기 상한에 맞춘다
+    while bytes > MAX_UNDO_BYTES && undo.len() > 100 {
+        bytes -= undo.remove(0).len();
     }
 }
 

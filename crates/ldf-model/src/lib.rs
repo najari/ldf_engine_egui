@@ -8,12 +8,14 @@
 //! (`ldf-syntax`는 어떤 내부 크레이트에도 의존하지 않는다).
 
 mod arena;
+mod edit;
 mod lower;
 mod protocol;
 mod semantic;
 mod types;
 
 pub use arena::{Arena, ArenaId, EncodingId, FrameId, NodeId, ScheduleId, SignalId};
+pub use edit::{AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft};
 pub use ldf_syntax::{Diagnostic, LineIndex, Severity, Span, codes};
 pub use lower::{Loaded, load, lower};
 pub use protocol::{

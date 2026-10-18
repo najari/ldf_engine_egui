@@ -22,12 +22,18 @@ pub enum EngineError {
     /// 저장소 오류.
     #[error(transparent)]
     Store(#[from] StoreError),
+    /// 편집 연산을 적용하지 못했다.
+    #[error(transparent)]
+    Edit(#[from] ldf_model::EditError),
     /// 오류 진단이 남아 있어 내보내기를 막았다(확인 후 llow_errors로 다시 시도).
     #[error("오류 진단이 {errors}개 남아 있다")]
     ExportBlocked {
         /// 남은 오류 개수.
         errors: usize,
     },
+    /// 열린 LDF가 없어 편집할 수 없다.
+    #[error("열린 LDF가 없다")]
+    NothingOpen,
     /// 작업자 스레드가 이미 끝났다.
     #[error("엔진 작업자가 종료되었다")]
     WorkerGone,

@@ -243,6 +243,7 @@ impl StudioApp {
                     self.snapshot = Some(snapshot);
                 }
                 Event::Revisions(r) => self.revisions = r,
+                Event::Edited(_) | Event::Saved { .. } => {}
                 Event::Exported(r) => {
                     self.busy = false;
                     let mut msg = format!(

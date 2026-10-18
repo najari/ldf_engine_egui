@@ -4,6 +4,7 @@ use crate::error::{EngineError, Result};
 use crate::export::{ExportOptions, ExportReport};
 use crate::session::{ModelSnapshot, Session};
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use ldf_model::EditOp;
 use ldf_store::RevisionInfo;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -40,6 +41,14 @@ pub enum Command {
     OpenRevision(i64),
     /// 리비전 목록을 다시 보낸다.
     RefreshRevisions,
+    /// 편집 연산을 적용한다(FR-EDT). 대화상자 OK 한 번은 `EditOp::Batch` 하나다.
+    Edit(EditOp),
+    /// 한 단계 되돌린다.
+    Undo,
+    /// 되돌린 것을 다시 적용한다.
+    Redo,
+    /// 편집한 내용을 새 리비전으로 저장한다.
+    SaveEdits,
     /// 리비전을 LDF 파일로 내보낸다(FR-EXP).
     Export {
         /// 내보낼 리비전.
@@ -69,6 +78,15 @@ pub enum Event {
         revisions: Vec<RevisionInfo>,
         /// 임포트한 내용이 이미 있어 새 리비전을 만들지 않고 기존 것을 열었는지(OpenRevision은 항상 alse).
         reused: bool,
+    },
+    /// 편집(또는 Undo/Redo)으로 새 스냅샷이 준비되었다. 열린 리비전은 그대로라 화면 상태(선택 등)를 유지해도 된다.
+    Edited(Arc<ModelSnapshot>),
+    /// 편집 내용이 새 리비전으로 저장되었다.
+    Saved {
+        /// 저장한 리비전의 스냅샷.
+        snapshot: Arc<ModelSnapshot>,
+        /// 갱신된 리비전 목록.
+        revisions: Vec<RevisionInfo>,
     },
     /// 리비전 목록만 갱신되었다.
     Revisions(Vec<RevisionInfo>),
@@ -196,10 +214,22 @@ fn run(
         revisions: session.revisions().unwrap_or_default(),
     });
 
+    let mut current: Option<Arc<ModelSnapshot>> = None;
     while let Ok(cmd) = cmd_rx.recv() {
-        let result = catch_unwind(AssertUnwindSafe(|| handle(&mut session, cmd)));
+        let result = catch_unwind(AssertUnwindSafe(|| handle(&mut session, &current, cmd)));
         match result {
-            Ok(Ok(events)) => events.into_iter().for_each(&send),
+            Ok(Ok(events)) => {
+                for e in &events {
+                    match e {
+                        Event::Loaded { snapshot, .. }
+                        | Event::Saved { snapshot, .. }
+                        | Event::Edited(snapshot) => current = Some(Arc::clone(snapshot)),
+                        Event::ProjectOpened { .. } => current = None,
+                        _ => {}
+                    }
+                }
+                events.into_iter().for_each(&send);
+            }
             Ok(Err(e)) => send(Event::Failed(e.to_string())),
             Err(p) => {
                 send(Event::Fatal(panic_text(&p)));
@@ -209,7 +239,11 @@ fn run(
     }
 }
 
-fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
+fn handle(
+    session: &mut Session,
+    current: &Option<Arc<ModelSnapshot>>,
+    cmd: Command,
+) -> Result<Vec<Event>> {
     match cmd {
         Command::OpenProject(path) => {
             *session = Session::open(&path)?;
@@ -244,6 +278,26 @@ fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
             }])
         }
         Command::RefreshRevisions => Ok(vec![Event::Revisions(session.revisions()?)]),
+        Command::Edit(op) => {
+            let snap = open_snapshot(current)?;
+            Ok(vec![Event::Edited(session.edit(snap, &op)?)])
+        }
+        Command::Undo => {
+            let snap = open_snapshot(current)?;
+            Ok(session.undo(snap).map(Event::Edited).into_iter().collect())
+        }
+        Command::Redo => {
+            let snap = open_snapshot(current)?;
+            Ok(session.redo(snap).map(Event::Edited).into_iter().collect())
+        }
+        Command::SaveEdits => {
+            let snap = open_snapshot(current)?;
+            let out = session.save_edits(snap)?;
+            Ok(vec![Event::Saved {
+                snapshot: out.snapshot,
+                revisions: session.revisions()?,
+            }])
+        }
         Command::Export {
             revision,
             path,
@@ -259,6 +313,10 @@ fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
             Err(e) => Err(e),
         },
     }
+}
+
+fn open_snapshot(current: &Option<Arc<ModelSnapshot>>) -> Result<&ModelSnapshot> {
+    current.as_deref().ok_or(EngineError::NothingOpen)
 }
 
 fn loaded(session: &Session, out: crate::session::ImportOutcome) -> Result<Vec<Event>> {
