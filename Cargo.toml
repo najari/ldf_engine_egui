@@ -27,6 +27,7 @@ crossbeam-channel = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tracing-appender = "0.2"
+winresource = "0.1"
 
 # 저장소
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -45,6 +46,7 @@ rfd = "0.17"
 # 테스트
 insta = { version = "1", features = ["json"] }
 proptest = "1"
+criterion = { version = "0.8", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

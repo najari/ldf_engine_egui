@@ -23,6 +23,15 @@ fn renderers() -> Vec<Renderer> {
     }
 }
 
+/// 창·작업 표시줄 아이콘(64x64 RGBA, `assets/icon64.rgba`).
+fn window_icon() -> egui::IconData {
+    egui::IconData {
+        rgba: include_bytes!("../assets/icon64.rgba").to_vec(),
+        width: 64,
+        height: 64,
+    }
+}
+
 fn run(renderer: Renderer, fail: bool) -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer,
@@ -30,6 +39,7 @@ fn run(renderer: Renderer, fail: bool) -> eframe::Result {
             .with_title("LDF Studio")
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([960.0, 600.0])
+            .with_icon(std::sync::Arc::new(window_icon()))
             .with_drag_and_drop(true),
         ..Default::default()
     };

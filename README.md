@@ -17,6 +17,7 @@ Rust로 만들고, UI는 [egui](https://github.com/emilk/egui), 저장소는 SQL
 | 문서 | 내용 |
 | --- | --- |
 | [docs/prd.md](docs/prd.md) | 개발지시서(PRD): 목표, 요구사항(FR/NFR), 작업 패키지(WP1–14), 마일스톤과 인수 기준 |
+| [docs/performance.md](docs/performance.md) | 성능 측정(벤치마크 cargo bench -p ldf-engine, 화면·메모리·시작) |
 | [docs/design.md](docs/design.md) | 설계서: Rust 오픈소스 조사, 아키텍처, 파서, SQLite 스키마, egui UI, 흐름, 테스트 |
 
 요구사항과 설계서가 충돌하면 PRD가 우선한다.

@@ -17,8 +17,13 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 proptest.workspace = true
 tracing-subscriber.workspace = true
+
+[[bench]]
+name = "pipeline"
+harness = false
 
 [lints]
 workspace = true
