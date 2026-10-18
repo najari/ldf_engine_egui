@@ -16,6 +16,7 @@ mod r0105_etf_format;
 mod r0106_commands;
 mod r0107_byte_init;
 mod r0108_node_attribute_set;
+mod r0109_composition;
 mod r0201_schedule;
 mod r0202_node_attributes;
 mod r0203_frames;
@@ -65,6 +66,7 @@ pub(crate) fn registered() -> Vec<&'static dyn Rule> {
         &r0203_frames::RULE,
         &r0202_node_attributes::RULE,
         &r0201_schedule::RULE,
+        &r0109_composition::RULE,
         &r0108_node_attribute_set::RULE,
         &r0107_byte_init::RULE,
         &r0406_frame_layout::RULE,

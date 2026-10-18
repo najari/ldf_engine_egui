@@ -4,6 +4,20 @@ use crate::Rule;
 use crate::util::{Proto, diag, file_proto};
 use ldf_model::{Diagnostic, LdfModel, Severity};
 
+/// 모델이 원문으로 보관하는 섹션을 이 버전에서 쓸 수 있는지.
+///
+/// `composite`는 LIN 2.x 문법이다(LIN 2.2A §9.2.2.3). ISO 17987 파일의 `composite`는 Vector가 0101로 보고한다(`Format/0201`).
+pub(crate) fn section_allowed(name: &str, p: Proto) -> bool {
+    match name {
+        "dynamic_frames" | "Dynamic_frames" => p == Proto::V2_0,
+        "Signal_groups" => p == Proto::V1_3,
+        "Diagnostic_addresses" => p == Proto::Iso,
+        "Node_composition" => matches!(p, Proto::V2_1 | Proto::V2_2 | Proto::Iso),
+        "composite" => matches!(p, Proto::V2_0 | Proto::V2_1 | Proto::V2_2),
+        _ => true,
+    }
+}
+
 /// 규칙 0101.
 pub(crate) struct R0101;
 /// 등록용 인스턴스.
@@ -50,15 +64,7 @@ impl Rule for R0101 {
 
         // 보관 섹션
         for s in &m.unknown_sections {
-            let allowed = match s.name.as_str() {
-                "dynamic_frames" | "Dynamic_frames" => p == Proto::V2_0,
-                "Signal_groups" => p == Proto::V1_3,
-                "Diagnostic_addresses" => p == Proto::Iso,
-                "Node_composition" => matches!(p, Proto::V2_1 | Proto::V2_2 | Proto::Iso),
-                "composite" => p == Proto::V2_0,
-                _ => true,
-            };
-            if !allowed {
+            if !section_allowed(&s.name, p) {
                 bad(&format!("`{}` 섹션", s.name), s.span);
             }
         }
@@ -99,6 +105,15 @@ mod tests {
         assert_eq!(n("2.0", "Channel_name = A;"), 1);
         assert_eq!(n("2.2", "LIN_sig_byte_order_big_endian;"), 1);
         assert_eq!(n("ISO17987:2015", "LIN_sig_byte_order_big_endian;"), 0);
+        assert_eq!(n("2.2", "composite { configuration c { P { A; } } }"), 0);
+        assert_eq!(n("2.0", "composite { configuration c { P { A; } } }"), 0);
+        assert_eq!(
+            n(
+                "ISO17987:2015",
+                "composite { configuration c { P { A; } } }"
+            ),
+            1
+        );
         assert_eq!(n("2.1", "dynamic_frames { 1 }"), 1);
         assert_eq!(n("2.0", "dynamic_frames { 1 }"), 0);
         assert_eq!(n("2.0", "Signal_groups { }"), 1);

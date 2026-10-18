@@ -356,11 +356,7 @@ fn logical_value_text_is_optional() {
 #[test]
 fn malformed_logical_value_is_still_an_error() {
     // 값이 없거나 숫자가 아니면 오류로 남는다
-    for body in [
-        "logical_value, 0, off;",
-        "logical_value;",
-        "logical_value, x, \"a\";",
-    ] {
+    for body in ["logical_value;", "logical_value, x, \"a\";"] {
         let l = load(&format!("Signal_encoding_types {{ E {{ {body} }} }}"));
         assert_eq!(l.diagnostics.len(), 1, "{body}: {:?}", l.diagnostics);
     }

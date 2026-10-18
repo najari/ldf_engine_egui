@@ -396,7 +396,11 @@ pub(super) const ENTRIES: &[(&str, &str)] = &[
     ("프레임 `{}`에서 시그널 `{}`와 `{}`가 겹친다", "In frame `{}`, signals `{}` and `{}` overlap"),
     ("프레임 `{}`에 어떤 시그널도 쓰지 않는 바이트가 있다", "Frame `{}` has bytes that no signal uses"),
     ("이벤트 트리거 연관 프레임 `{}`의 첫 바이트에 시그널이 있다", "The first byte of event-triggered associated frame `{}` has a signal"),
-    // ── 모델: 편집 오류·비교 ──
+    ("구성 `{}`에서 노드 이름 `{}`이(가) 두 번 나온다", "Node name `{2}` appears twice in configuration `{1}`"),
+    ("구성 `{}`의 논리 노드 `{}`이(가) 노드 속성에 없다", "Logical node `{2}` of configuration `{1}` is not in the node attributes"),
+    ("스케줄 `{}`의 슬롯 delay {} ms가 타임베이스 {} ms의 배수가 아니다", "Slot delay {2} ms in schedule `{1}` is not a multiple of the time base {3} ms"),
+    ("진단 프레임 `{}`의 ID가 {}이(가) 아니라 {}(0x{})여야 한다", "The ID of diagnostic frame `{1}` must be {3} (0x{4}), not {2}"),
+    ("진단 프레임 `{}`의 시그널이 `{}B0`…`{}B7`을 오프셋 0, 8, …, 56에 놓는 규격 배치와 다르다", "The signals of diagnostic frame `{1}` differ from the standard layout: `{1}B0`…`{1}B7` at offsets 0, 8, …, 56"),    // ── 모델: 편집 오류·비교 ──
     ("{} `{}`이(가) 없다", "{} `{}` does not exist"),
     ("{} `{}`이(가) 이미 있다", "{} `{}` already exists"),
     ("`{}`은(는) 이름으로 쓸 수 없다(영문자·숫자·밑줄, 숫자로 시작 불가)", "`{}` cannot be used as a name (letters, digits and underscores; cannot start with a digit)"),

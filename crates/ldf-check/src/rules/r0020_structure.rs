@@ -280,19 +280,17 @@ impl Rule for R0020 {
             }
         }
 
-        let iso = crate::util::file_proto(m) == crate::util::Proto::Iso;
         let mut diag_scheduled = false;
         for (_, t) in m.schedules.iter() {
             for slot in &t.slots {
                 match &slot.entry {
                     SlotEntry::Frame(r) => {
                         match r.id().and_then(|id| m.frames.get(id)) {
-                            // ISO 17987은 진단 프레임을 선언하지 않아도 이름으로 스케줄에 넣을 수 있다
-                            None if iso
-                                && matches!(
-                                    frame_label(m, r).as_str(),
-                                    "MasterReq" | "SlaveResp"
-                                ) =>
+                            // MasterReq·SlaveResp는 `Diagnostic_frames`가 없으면 자동으로 정의된다(LIN 2.2A §9.2.5, ISO 17987도 같다)
+                            None if matches!(
+                                frame_label(m, r).as_str(),
+                                "MasterReq" | "SlaveResp"
+                            ) =>
                             {
                                 diag_scheduled = true;
                             }
@@ -423,6 +421,21 @@ Schedule_tables { T { F delay 10 ms; } }
         assert_eq!(run(&no_marker).len(), 1);
         let slot = BASE.replace("F delay", "Nope delay");
         assert_eq!(run(&slot).len(), 1);
+    }
+
+    #[test]
+    fn diagnostic_frames_are_defined_implicitly_in_every_version() {
+        // LIN 2.2A §9.2.5: `Diagnostic_frames`가 없어도 MasterReq·SlaveResp는 스케줄에 쓸 수 있다
+        for ver in ["2.0", "2.1", "2.2", "ISO17987:2015"] {
+            let src = BASE.replace("\"2.1\"", &format!("\"{ver}\"")).replace(
+                "T { F delay 10 ms; }",
+                "T { F delay 10 ms; MasterReq delay 10 ms; SlaveResp delay 10 ms; }",
+            );
+            assert!(run(&src).is_empty(), "{ver}: {:?}", run(&src));
+        }
+        // 다른 이름은 여전히 정의되지 않은 프레임이다
+        let ghost = BASE.replace("F delay 10 ms;", "F delay 10 ms; MasterReq2 delay 10 ms;");
+        assert_eq!(run(&ghost).len(), 1);
     }
 
     #[test]

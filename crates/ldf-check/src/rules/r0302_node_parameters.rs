@@ -1,7 +1,8 @@
 //! 규칙 0302: 노드 속성의 값이 범위를 벗어났다.
 //!
-//! NAD 1–125, 공급자 ID ≤ 0x7FFF, 기능 ID ≤ 0xFFFF, 변형 ID ≤ 255, `P2_min` 50–500 ms, 메시지 ID 1–0xFFFE
-//! (J2602는 `P2_min`과 메시지 ID 범위를 따지지 않는다).
+//! NAD 1–125, 공급자 ID ≤ 0x7FFF, 기능 ID ≤ 0xFFFF, 변형 ID ≤ 255, `P2_min` 50–500 ms, 메시지 ID 0–0xFFFE
+//! (0은 LIN 2.2A §9.4의 예제가 이벤트 트리거 프레임에 쓴다. Vector `Parameter/0048`이 범위 밖 값 3개(0x10000, 0xFFFF, 0x0) 중
+//! 2개만 0302로 기대하므로 0xFFFF와 그 이상만 벗어난 것으로 본다. J2602는 `P2_min`과 메시지 ID 범위를 따지지 않는다).
 
 use crate::Rule;
 use crate::util::{Proto, attr_proto, diag, node_label};
@@ -66,7 +67,7 @@ impl Rule for R0302 {
             for c in &a.configurable_frames {
                 if let Some(id) = c.message_id
                     && !j2602
-                    && !(1..=0xFFFE).contains(&id)
+                    && id > 0xFFFE
                 {
                     range(format!("메시지 ID {id:#X}"));
                 }
@@ -110,5 +111,13 @@ mod tests {
         assert_eq!(n("product_id = 0x8000, 0x10000, 256;"), 3);
         assert_eq!(n("P2_min = 501 ms;"), 1);
         assert_eq!(n("P2_min = 49 ms;"), 1);
+        // 메시지 ID: 0(이벤트 트리거 프레임)은 허용, 0xFFFF 이상은 벗어남
+        let cf = |ids: &str| {
+            n(&format!(
+                "LIN_protocol = \"2.0\"; configurable_frames {{ {ids} }}"
+            ))
+        };
+        assert_eq!(cf("F1 = 0; F2 = 0xFFFE;"), 0);
+        assert_eq!(cf("F1 = 0xFFFF; F2 = 0x10000;"), 2);
     }
 }

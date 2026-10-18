@@ -3,7 +3,7 @@
 //! - 스케줄 테이블이 없거나, 슬롯이 없는 테이블이 있다.
 //! - 어느 테이블에도 들어 있지 않은 프레임(스포라딕·이벤트 트리거 프레임에 연관된 프레임은 거기에 포함된 것으로 본다).
 //! - 스포라딕·이벤트 트리거 프레임과 그 연관 프레임이 한 테이블에 함께 있다.
-//! - 슬롯 delay가 프레임 최대 전송 시간보다 짧다.
+//! - 슬롯 delay가 프레임 최대 전송 시간보다 짧거나 마스터 타임베이스의 정수배가 아니다.
 //! - 이벤트 트리거 프레임의 충돌 해결 테이블이 연관 프레임을 모두 담지 않는다.
 //! - `AssignFrameIdRange`의 인덱스·PID가 노드의 `configurable_frames`와 맞지 않는다.
 //! - `AssignFrameId`가 노드의 `configurable_frames`에 없는 프레임을 가리킨다.
@@ -15,8 +15,8 @@ use crate::Rule;
 use crate::raw::command_args;
 use crate::util::{Proto, attr_proto, diag, file_proto, frame_label, node_label};
 use ldf_model::{
-    Diagnostic, FrameId, FrameKind, LdfModel, NodeId, Ref, ScheduleId, Severity, SlotEntry,
-    frame_time_max_ms, pid_is_valid, protected_id,
+    Diagnostic, FrameId, FrameKind, LdfModel, NodeId, NodeRole, Ref, ScheduleId, Severity,
+    SlotEntry, frame_time_max_ms, pid_is_valid, protected_id,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -120,9 +120,29 @@ impl Rule for R0201 {
         }
 
         let speed = m.header.speed_bps.unwrap_or(0);
+        // 슬롯 길이는 마스터 타임베이스의 정수배다(LIN 2.2A 프로토콜 §2.4.1: T_Frame_Slot = T_base * n)
+        let timebase = m
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role == NodeRole::Master)
+            .and_then(|(_, n)| n.timebase_ms)
+            .filter(|tb| *tb > 0.0);
         for (sid, t) in m.schedules.iter() {
             let here = in_table.get(&sid);
             for slot in &t.slots {
+                if let Some(tb) = timebase {
+                    let n = slot.delay_ms / tb;
+                    if (n - n.round()).abs() > 1e-6 {
+                        err(
+                            out,
+                            slot.span,
+                            format!(
+                                "스케줄 `{}`의 슬롯 delay {} ms가 타임베이스 {tb} ms의 배수가 아니다",
+                                t.name, slot.delay_ms
+                            ),
+                        );
+                    }
+                }
                 match &slot.entry {
                     SlotEntry::Frame(r) => {
                         let Some(fid) = r.id() else { continue };
@@ -421,6 +441,23 @@ mod tests {
     #[test]
     fn complete_schedule_is_clean() {
         assert_eq!(n("T { F1 delay 10 ms; F2 delay 10 ms; }"), 0);
+    }
+
+    #[test]
+    fn slot_length_is_a_multiple_of_the_time_base() {
+        // 마스터 타임베이스 1 ms
+        assert_eq!(n("T { F1 delay 10.5 ms; F2 delay 10 ms; }"), 1);
+        let five = BASE.replace("1 ms, 0 ms", "5 ms, 0.1 ms");
+        let run = |sched: &str| {
+            let mut out = Vec::new();
+            RULE.check(
+                &load(&format!("{five}Schedule_tables {{ {sched} }}")).model,
+                &mut out,
+            );
+            out.len()
+        };
+        assert_eq!(run("T { F1 delay 15 ms; F2 delay 20 ms; }"), 0);
+        assert_eq!(run("T { F1 delay 15 ms; F2 delay 7 ms; }"), 1);
     }
 
     #[test]
