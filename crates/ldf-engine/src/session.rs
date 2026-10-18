@@ -6,7 +6,7 @@ use crate::error::{EngineError, Result};
 use ldf_check::{RuleSetting, RuleSettings, run_all_with};
 use ldf_model::{Diagnostic, EditOp, LdfModel, LineIndex, Severity};
 use ldf_store::{NewRevision, RevisionInfo, RuleSettingRow, Store, StoredRevision};
-use ldf_writer::{Eol, WriteOptions, write};
+use ldf_writer::{Eol, WriteOptions, carry_comments, write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -299,7 +299,7 @@ impl Session {
         })
     }
 
-    /// 편집 연산을 적용한다. 모델을 고쳐 텍스트로 쓰고 다시 읽어, 위치와 진단이 맞는 새 스냅샷을 만든다.
+    /// 편집 연산을 적용한다. 모델을 고쳐 텍스트로 쓰고(주석은 원문에서 옮긴다) 다시 읽어, 위치와 진단이 맞는 새 스냅샷을 만든다.
     /// 실패하면 아무것도 바뀌지 않는다.
     pub fn edit(&mut self, snap: &ModelSnapshot, op: &EditOp) -> Result<Arc<ModelSnapshot>> {
         let mut model = snap.model.clone();
@@ -309,7 +309,7 @@ impl Session {
         } else {
             Eol::Lf
         };
-        let text = write(
+        let written = write(
             &model,
             &WriteOptions {
                 eol,
@@ -317,6 +317,8 @@ impl Session {
             },
         )
         .text;
+        // 원문의 주석을 같은 문장 옆에 되살린다(FR-EXP-03). 지워진 문장의 주석만 사라진다.
+        let text = carry_comments(&snap.source, &written);
         let w = self.working_for(snap);
         w.undo.push(std::mem::replace(&mut w.current, text.clone()));
         w.redo.clear();

@@ -92,14 +92,14 @@ impl Session {
             return Err(EngineError::ExportBlocked { errors });
         }
 
-        // 편집하지 않았고 버전도 바꾸지 않으면 원문을 그대로 쓴다: 주석과 서식이 모두 남는다(FR-EXP-03).
+        // 버전을 바꾸지 않으면 스냅샷의 텍스트를 그대로 쓴다. 편집하지 않았으면 원문이고, 편집했으면 주석을 옮겨 다시 쓴 텍스트다(FR-EXP-03).
         // 줄바꿈만 다르게 고르면 그 부분만 바꾼다.
         let source_eol = if snap.source.contains("\r\n") {
             Eol::CrLf
         } else {
             Eol::Lf
         };
-        let (text, warnings) = if !snap.dirty && opts.target == Target::Keep {
+        let (text, warnings) = if opts.target == Target::Keep {
             let text = match opts.eol {
                 Some(eol) if eol != source_eol => {
                     let lf = snap.source.replace("\r\n", "\n");
@@ -328,8 +328,8 @@ mod tests {
         );
         assert!(text.contains("Slaves: A, B;"));
         assert!(
-            !text.contains("사라지는 주석"),
-            "본문 주석은 정규 서식으로 다시 쓸 때 사라진다"
+            text.contains("사라지는 주석"),
+            "본문 주석은 같은 문장 옆에 남는다"
         );
         let _ = std::fs::remove_file(&path);
     }

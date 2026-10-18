@@ -8,8 +8,10 @@
 
 mod atomic;
 mod emit;
+mod trivia;
 
 pub use atomic::write_file_atomic;
+pub use trivia::carry_comments;
 
 use emit::{HEADER_KEYS, header_item};
 use ldf_model::{LdfModel, SignalKind};

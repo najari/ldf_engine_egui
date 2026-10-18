@@ -1777,6 +1777,7 @@ name = "ldf-writer"
 version = "0.1.0"
 dependencies = [
  "ldf-model",
+ "ldf-syntax",
 ]
 
 [[package]]

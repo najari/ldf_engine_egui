@@ -144,7 +144,7 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                 } else if !snap.dirty {
                     ui.weak("편집하지 않았으므로 원문(주석·서식 포함)을 그대로 내보낸다.");
                 } else {
-                    ui.weak("편집한 내용은 정규 서식으로 다시 쓴다(파일 머리말 주석만 유지된다).");
+                    ui.weak("편집한 내용은 정규 서식으로 다시 쓰고, 주석은 같은 항목 옆에 남는다.");
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {

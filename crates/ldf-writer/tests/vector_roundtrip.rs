@@ -69,3 +69,59 @@ fn every_vector_test_file_survives_write_and_reread() {
     );
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// 다시 쓴 텍스트에 주석을 옮기면 원문의 주석이 얼마나 남는지(FR-EXP-03). 파일 머리말 주석은 따로 되살리므로 합쳐서 센다.
+#[test]
+fn carrying_comments_keeps_nearly_all_comments_of_the_corpus() {
+    let Ok(dir) = std::env::var("LDF_VECTOR_TESTFILES") else {
+        eprintln!("LDF_VECTOR_TESTFILES가 없어 건너뜀");
+        return;
+    };
+    let mut files = Vec::new();
+    collect(Path::new(&dir), &mut files);
+    files.sort();
+    let (mut total, mut kept) = (0usize, 0usize);
+    let mut lost_files = Vec::new();
+    for f in &files {
+        let bytes = std::fs::read(f).expect("read");
+        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+        let loaded = load(&text);
+        if loaded
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == ldf_model::Severity::Error && d.code >= 9000)
+        {
+            continue;
+        }
+        let new = write(&loaded.model, &WriteOptions::default()).text;
+        let out = ldf_writer::carry_comments(&text, &new);
+        let count = |s: &str| ldf_syntax::lex(s).comments.len();
+        let (before, after) = (count(&text), count(&out));
+        total += before;
+        kept += after.min(before);
+        if after < before {
+            lost_files.push(format!(
+                "{}: {before} -> {after}",
+                f.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ));
+        }
+        // 어떤 경우에도 결과는 같은 모델로 읽혀야 한다
+        let again = load(&out);
+        assert!(
+            ldf_model::semantically_equal(&loaded.model, &again.model),
+            "{}: 주석을 옮긴 뒤 모델이 달라졌다",
+            f.display()
+        );
+    }
+    eprintln!(
+        "주석 {total}개 중 {kept}개 유지, 줄어든 파일 {}개 {lost_files:?}",
+        lost_files.len()
+    );
+    assert!(total > 0);
+    assert!(
+        kept * 100 >= total * 95,
+        "주석 유지율이 95% 아래다: {kept}/{total}"
+    );
+}
