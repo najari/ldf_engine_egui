@@ -214,6 +214,7 @@ dependencies = [
  "ldf-model",
  "rusqlite",
  "rusqlite_migration",
+ "serde_json",
  "thiserror",
 ]
 

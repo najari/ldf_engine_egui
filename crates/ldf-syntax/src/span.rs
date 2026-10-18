@@ -1,9 +1,9 @@
 //! 소스 위치. 모든 위치는 원문 UTF-8 바이트 오프셋이다.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 원문의 바이트 범위 `[start, end)`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Span {
     /// 시작 바이트 오프셋(포함).
     pub start: usize,

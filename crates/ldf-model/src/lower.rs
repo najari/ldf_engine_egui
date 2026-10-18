@@ -62,6 +62,8 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
         diags: Vec::new(),
         sym: Symbols::default(),
     };
+    // 이미 디코딩된 문자열에서 읽으므로 기본은 utf-8. 엔진이 감지한 원본 인코딩으로 덮어쓴다.
+    lw.model.header.encoding = "utf-8".to_owned();
     let mut sections: Vec<(&str, &Stmt, &Block)> = Vec::new();
 
     for stmt in &file.stmts {

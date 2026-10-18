@@ -1,6 +1,6 @@
 //! 타입이 붙은 ID와 arena. 참조는 문자열이 아니라 인덱스이므로 이름 변경이 O(1)이다.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 /// arena 인덱스로 쓰는 ID 타입.
@@ -14,7 +14,7 @@ pub trait ArenaId: Copy {
 macro_rules! id_type {
     ($(#[$m:meta])* $name:ident) => {
         $(#[$m])*
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
         pub struct $name(pub u32);
 
         impl ArenaId for $name {
@@ -40,8 +40,11 @@ id_type!(/// 스케줄 테이블 ID.
     ScheduleId);
 
 /// 삽입 순서를 보존하는 arena.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(transparent, bound(serialize = "T: Serialize"))]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    transparent,
+    bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>")
+)]
 pub struct Arena<I, T> {
     items: Vec<T>,
     #[serde(skip)]

@@ -2,10 +2,10 @@
 
 use crate::arena::{Arena, EncodingId, FrameId, NodeId, ScheduleId, SignalId};
 use ldf_syntax::Span;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 다른 객체에 대한 참조.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Ref<T> {
     /// 해석된 참조.
     Resolved(T),
@@ -34,7 +34,7 @@ impl<T> Ref<T> {
 }
 
 /// LDF 헤더.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Header {
     /// `LIN_description_file;` 선언이 있었는지.
     pub has_description_marker: bool,
@@ -55,7 +55,7 @@ pub struct Header {
 }
 
 /// 노드 역할.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NodeRole {
     /// 마스터.
     Master,
@@ -64,7 +64,7 @@ pub enum NodeRole {
 }
 
 /// 노드.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     /// 이름.
     pub name: String,
@@ -83,7 +83,7 @@ pub struct Node {
 }
 
 /// 구성 가능한 프레임(`configurable_frames`) 항목.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConfigurableFrame {
     /// 프레임.
     pub frame: Ref<FrameId>,
@@ -92,7 +92,7 @@ pub struct ConfigurableFrame {
 }
 
 /// 제품 ID.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductId {
     /// 공급자 ID.
     pub supplier: u32,
@@ -103,7 +103,7 @@ pub struct ProductId {
 }
 
 /// 모델이 해석하지 않는 속성(왕복 보존용).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawAttr {
     /// 키.
     pub key: String,
@@ -112,7 +112,7 @@ pub struct RawAttr {
 }
 
 /// 슬레이브 노드 속성(`Node_attributes`).
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeAttrs {
     /// 대상 노드.
     pub node: Ref<NodeId>,
@@ -145,7 +145,7 @@ pub struct NodeAttrs {
 }
 
 /// 시그널 초기값.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InitValue {
     /// 스칼라.
     Scalar(u64),
@@ -154,7 +154,7 @@ pub enum InitValue {
 }
 
 /// 시그널 종류.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignalKind {
     /// 일반 시그널.
     Normal,
@@ -163,7 +163,7 @@ pub enum SignalKind {
 }
 
 /// 시그널.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Signal {
     /// 이름.
     pub name: String,
@@ -191,7 +191,7 @@ impl Signal {
 }
 
 /// 프레임에 배치된 시그널.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameSignal {
     /// 시그널.
     pub signal: Ref<SignalId>,
@@ -200,7 +200,7 @@ pub struct FrameSignal {
 }
 
 /// 프레임 종류별 내용.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FrameKind {
     /// 무조건 프레임.
     Unconditional {
@@ -237,7 +237,7 @@ pub enum FrameKind {
 }
 
 /// 프레임.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
     /// 이름.
     pub name: String,
@@ -279,7 +279,7 @@ impl Frame {
 }
 
 /// 인코딩 항목.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EncodingEntry {
     /// 논리값: 값 -> 텍스트.
     Logical {
@@ -308,7 +308,7 @@ pub enum EncodingEntry {
 }
 
 /// 인코딩 타입.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncodingType {
     /// 이름.
     pub name: String,
@@ -319,7 +319,7 @@ pub struct EncodingType {
 }
 
 /// 스케줄 슬롯의 내용.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SlotEntry {
     /// 프레임(`MasterReq`/`SlaveResp` 포함).
     Frame(Ref<FrameId>),
@@ -371,7 +371,7 @@ pub enum SlotEntry {
 }
 
 /// 스케줄 슬롯.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Slot {
     /// 내용.
     pub entry: SlotEntry,
@@ -382,7 +382,7 @@ pub struct Slot {
 }
 
 /// 스케줄 테이블.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScheduleTable {
     /// 이름.
     pub name: String,
@@ -393,7 +393,7 @@ pub struct ScheduleTable {
 }
 
 /// 모델이 해석하지 않는 섹션(왕복 보존용).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawSection {
     /// 섹션 이름.
     pub name: String,
@@ -404,7 +404,7 @@ pub struct RawSection {
 }
 
 /// LDF 모델 전체.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LdfModel {
     /// 헤더.
     pub header: Header,
