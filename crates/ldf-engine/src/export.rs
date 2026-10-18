@@ -2,7 +2,7 @@
 
 use crate::decode;
 use crate::error::{EngineError, Result};
-use crate::session::Session;
+use crate::session::{ModelSnapshot, Session};
 use ldf_model::{Severity, load, semantically_equal};
 use ldf_writer::{Eol, Target, WriteOptions, write, write_file_atomic};
 use std::path::{Path, PathBuf};
@@ -36,7 +36,7 @@ pub struct ExportReport {
 }
 
 impl Session {
-    /// 리비전을 `path`에 LDF로 쓴다. 쓰기는 원자적이다(FR-EXP-05).
+    /// 저장된 리비전을 `path`에 LDF로 쓴다. 쓰기는 원자적이다(FR-EXP-05).
     ///
     /// 오류 진단이 남은 리비전은 `allow_errors`가 아니면 [`EngineError::ExportBlocked`]로 거부한다.
     pub fn export(
@@ -45,7 +45,17 @@ impl Session {
         path: &Path,
         opts: &ExportOptions,
     ) -> Result<ExportReport> {
-        let snap = self.open_revision(revision)?;
+        let snap = self.read_revision(revision)?;
+        self.export_snapshot(&snap, path, opts)
+    }
+
+    /// 이미 열린 스냅샷(저장 안 한 편집 포함)을 `path`에 쓴다.
+    pub fn export_snapshot(
+        &self,
+        snap: &ModelSnapshot,
+        path: &Path,
+        opts: &ExportOptions,
+    ) -> Result<ExportReport> {
         let errors = snap
             .diagnostics
             .iter()

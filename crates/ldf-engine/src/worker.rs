@@ -302,7 +302,7 @@ fn handle(
             revision,
             path,
             options,
-        } => match session.export(revision, &path, &options) {
+        } => match export(session, current, revision, &path, &options) {
             Ok(report) => Ok(vec![Event::Exported(report)]),
             Err(EngineError::ExportBlocked { errors }) => Ok(vec![Event::ExportBlocked {
                 revision,
@@ -312,6 +312,20 @@ fn handle(
             }]),
             Err(e) => Err(e),
         },
+    }
+}
+
+/// 열려 있는 리비전이면 저장 안 한 편집까지 포함해 내보낸다.
+fn export(
+    session: &mut Session,
+    current: &Option<Arc<ModelSnapshot>>,
+    revision: i64,
+    path: &std::path::Path,
+    options: &crate::export::ExportOptions,
+) -> Result<crate::export::ExportReport> {
+    match current {
+        Some(snap) if snap.revision.id == revision => session.export_snapshot(snap, path, options),
+        _ => session.export(revision, path, options),
     }
 }
 

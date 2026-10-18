@@ -2,13 +2,15 @@
 
 use crate::fonts;
 use crate::ui::checker::CheckerAction;
+use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
-use crate::view::{self, Selection};
+use crate::view::edit::{EncodingUi, FrameUi, NodeUi, ScheduleUi, SignalUi};
+use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
-use ldf_engine::{Command, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo};
+use ldf_engine::{Command, EditOp, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo};
 use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -71,6 +73,41 @@ pub struct StudioApp {
     /// LDF_STUDIO_PERF=1이면 상태 바에 프레임당 CPU 시간을 보여준다(NFR-01 확인용).
     perf: Option<f32>,
     show_perf: bool,
+    /// 편집이 끝나면 선택할 객체(새로 만든 항목).
+    select_after_edit: Option<SelKey>,
+    /// 저장 안 한 변경이 있어 확인을 기다리는 동작(FR-EDT-09).
+    unsaved: Option<Pending>,
+    /// 저장이 끝나면 이어서 할 동작.
+    after_save: Option<Pending>,
+    /// 변경을 버리고 닫기로 확정했는지.
+    allow_close: bool,
+    /// 이벤트 처리 밖(동작 수행)에서 창 명령을 보내기 위한 핸들.
+    ctx: Option<egui::Context>,
+}
+
+/// 새로 만들 수 있는 객체 종류.
+#[derive(Clone, Copy)]
+enum NewKind {
+    Unconditional,
+    EventTriggered,
+    Sporadic,
+    Signal,
+    Slave,
+    Schedule,
+    Encoding,
+}
+
+/// 저장 안 한 변경이 있으면 확인을 거쳐야 하는 동작.
+#[derive(Clone, Debug)]
+enum Pending {
+    /// LDF 파일을 연다.
+    Import(PathBuf),
+    /// 프로젝트 파일을 연다.
+    OpenProject(PathBuf),
+    /// 리비전을 연다.
+    OpenRevision(i64),
+    /// 앱을 닫는다.
+    Quit,
 }
 
 /// 프로젝트 DB의 기본 위치: `%LOCALAPPDATA%\LDFStudio\default.ldfdb`.
@@ -122,6 +159,11 @@ impl StudioApp {
             title: String::new(),
             perf: None,
             show_perf: std::env::var_os("LDF_STUDIO_PERF").is_some(),
+            select_after_edit: None,
+            unsaved: None,
+            after_save: None,
+            allow_close: false,
+            ctx: Some(cc.egui_ctx.clone()),
         };
         if let Some(arg) = std::env::args_os().nth(1) {
             app.import(PathBuf::from(arg));
@@ -140,6 +182,166 @@ impl StudioApp {
         self.remember_recent(&path);
         self.busy = true;
         self.send(Command::Import(path));
+    }
+
+    fn dirty(&self) -> bool {
+        self.snapshot.as_ref().is_some_and(|s| s.dirty)
+    }
+
+    /// 변경이 있으면 확인을 받은 뒤, 없으면 바로 `act`를 한다.
+    fn request(&mut self, act: Pending) {
+        if self.dirty() {
+            self.unsaved = Some(act);
+        } else {
+            self.perform(act);
+        }
+    }
+
+    fn perform(&mut self, act: Pending) {
+        match act {
+            Pending::Import(p) => self.import(p),
+            Pending::OpenProject(p) => {
+                self.send(Command::OpenProject(p));
+                self.snapshot = None;
+                self.st.reset_for_new_model();
+            }
+            Pending::OpenRevision(id) => {
+                self.busy = true;
+                self.send(Command::OpenRevision(id));
+            }
+            Pending::Quit => {
+                self.allow_close = true;
+                if let Some(ctx) = self.ctx.clone() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    fn edit(&mut self, op: EditOp) {
+        self.busy = true;
+        self.send(Command::Edit(op));
+    }
+
+    /// 선택한 항목의 편집 대화상자를 연다.
+    fn open_edit(&mut self) {
+        let Some(snap) = self.snapshot.clone() else {
+            return;
+        };
+        let m = &snap.model;
+        let dlg = match &self.st.selection {
+            Selection::Frame(id) => match FrameUi::from_frame(m, *id) {
+                Some(d) => Some(Dialog::Frame(d)),
+                None => {
+                    self.notice = Some("진단 프레임은 편집할 수 없다".to_owned());
+                    None
+                }
+            },
+            Selection::Signal(id) => SignalUi::from_signal(m, *id).map(Dialog::Signal),
+            Selection::Node(id) => NodeUi::from_node(m, *id).map(Dialog::Node),
+            Selection::Schedule(id) | Selection::Slot(id, _) => {
+                ScheduleUi::from_schedule(m, *id).map(Dialog::Schedule)
+            }
+            _ => None,
+        };
+        if dlg.is_some() {
+            self.st.edit.dialog = dlg;
+        }
+    }
+
+    /// 선택한 항목의 삭제 확인을 연다(함께 지워지는 항목을 미리 보여 준다).
+    fn open_delete(&mut self) {
+        let Some(snap) = self.snapshot.clone() else {
+            return;
+        };
+        let m = &snap.model;
+        let target = match &self.st.selection {
+            Selection::Frame(id) => m.frames.get(*id).map(|f| {
+                (
+                    format!("프레임 `{}`", f.name),
+                    EditOp::DeleteFrame(f.name.clone()),
+                )
+            }),
+            Selection::Signal(id) => m.signals.get(*id).map(|s| {
+                (
+                    format!("시그널 `{}`", s.name),
+                    EditOp::DeleteSignal(s.name.clone()),
+                )
+            }),
+            Selection::Node(id) => m
+                .nodes
+                .get(*id)
+                .filter(|n| n.role == ldf_model::NodeRole::Slave)
+                .map(|n| {
+                    (
+                        format!("노드 `{}`", n.name),
+                        EditOp::DeleteNode(n.name.clone()),
+                    )
+                }),
+            Selection::Schedule(id) | Selection::Slot(id, _) => m.schedules.get(*id).map(|t| {
+                (
+                    format!("스케줄 테이블 `{}`", t.name),
+                    EditOp::DeleteSchedule(t.name.clone()),
+                )
+            }),
+            _ => None,
+        };
+        if let Some((what, op)) = target
+            && let Some(d) = DeleteUi::new(m, what, op)
+        {
+            self.st.edit.dialog = Some(Dialog::Delete(d));
+        }
+    }
+
+    /// 새 객체를 만드는 대화상자를 연다(FR-EDT-04).
+    fn open_new(&mut self, kind: NewKind) {
+        let Some(snap) = self.snapshot.clone() else {
+            return;
+        };
+        let m = &snap.model;
+        match kind {
+            NewKind::Unconditional => {
+                self.st.edit.dialog = Some(Dialog::Frame(FrameUi::new_unconditional(m)));
+            }
+            NewKind::EventTriggered => {
+                self.st.edit.dialog = Some(Dialog::Frame(FrameUi::new_event_triggered(m)));
+            }
+            NewKind::Sporadic => {
+                self.st.edit.dialog = Some(Dialog::Frame(FrameUi::new_sporadic(m)));
+            }
+            NewKind::Signal => self.st.edit.dialog = Some(Dialog::Signal(SignalUi::new(m))),
+            NewKind::Slave => self.st.edit.dialog = Some(Dialog::Node(NodeUi::new_slave(m))),
+            NewKind::Schedule => {
+                self.st.edit.dialog = Some(Dialog::Schedule(ScheduleUi::new(m)));
+            }
+            NewKind::Encoding => self.st.edit.encoding = Some(EncodingUi::new(m)),
+        }
+    }
+
+    fn edit_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
+        if let Outcome::Apply { op, select } = crate::ui::edit::show(ctx, snap, &mut self.st.edit) {
+            self.select_after_edit = select;
+            self.edit(*op);
+        }
+    }
+
+    fn undo(&mut self) {
+        if self.snapshot.as_ref().is_some_and(|s| s.can_undo) {
+            self.send(Command::Undo);
+        }
+    }
+
+    fn redo(&mut self) {
+        if self.snapshot.as_ref().is_some_and(|s| s.can_redo) {
+            self.send(Command::Redo);
+        }
+    }
+
+    fn save_edits(&mut self) {
+        if self.dirty() {
+            self.busy = true;
+            self.send(Command::SaveEdits);
+        }
     }
 
     fn remember_recent(&mut self, path: &Path) {
@@ -191,12 +393,8 @@ impl StudioApp {
             Ok(picked) => {
                 self.picker = None;
                 match picked {
-                    Some(Picked::Ldf(p)) => self.import(p),
-                    Some(Picked::Project(p)) => {
-                        self.send(Command::OpenProject(p));
-                        self.snapshot = None;
-                        self.st.reset_for_new_model();
-                    }
+                    Some(Picked::Ldf(p)) => self.request(Pending::Import(p)),
+                    Some(Picked::Project(p)) => self.request(Pending::OpenProject(p)),
                     Some(Picked::Export(path)) => self.start_export(path),
                     None => self.export_pending = None,
                 }
@@ -235,6 +433,7 @@ impl StudioApp {
                     self.busy = false;
                     self.revisions = revisions;
                     self.st.reset_for_new_model();
+                    self.select_after_edit = None;
                     self.set_title(ctx, &snapshot);
                     if reused {
                         self.notice =
@@ -243,7 +442,22 @@ impl StudioApp {
                     self.snapshot = Some(snapshot);
                 }
                 Event::Revisions(r) => self.revisions = r,
-                Event::Edited(_) | Event::Saved { .. } => {}
+                Event::Edited(snapshot) => {
+                    self.busy = false;
+                    self.adopt_edit(ctx, snapshot);
+                }
+                Event::Saved {
+                    snapshot,
+                    revisions,
+                } => {
+                    self.busy = false;
+                    self.revisions = revisions;
+                    self.adopt_edit(ctx, snapshot);
+                    self.notice = Some("편집 내용을 새 리비전으로 저장했다".to_owned());
+                    if let Some(next) = self.after_save.take() {
+                        self.perform(next);
+                    }
+                }
                 Event::Exported(r) => {
                     self.busy = false;
                     let mut msg = format!(
@@ -286,13 +500,29 @@ impl StudioApp {
         }
     }
 
+    /// 편집·Undo·Redo·저장으로 새 스냅샷이 오면 보던 화면(선택, 트리)을 이름으로 이어 간다.
+    fn adopt_edit(&mut self, ctx: &egui::Context, snapshot: Arc<ModelSnapshot>) {
+        let key = self.select_after_edit.take().or_else(|| {
+            self.snapshot
+                .as_ref()
+                .map(|old| self.st.selection.key(&old.model))
+        });
+        if let Some(key) = key {
+            self.st.selection = key.resolve(&snapshot.model);
+        }
+        self.st.after_model_edit(&snapshot.model);
+        self.set_title(ctx, &snapshot);
+        self.snapshot = Some(snapshot);
+    }
+
     fn set_title(&mut self, ctx: &egui::Context, snap: &ModelSnapshot) {
         let name = snap
             .revision
             .source_name
             .clone()
             .unwrap_or_else(|| snap.revision.label.clone());
-        let title = format!("LDF Studio — {name} (리비전 {})", snap.revision.id);
+        let mark = if snap.dirty { "*" } else { "" };
+        let title = format!("{mark}LDF Studio — {name} (리비전 {})", snap.revision.id);
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -307,6 +537,33 @@ impl StudioApp {
         if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::F)) {
             self.st.focus_search = true;
         }
+        // 입력칸에 포커스가 있으면 Ctrl+Z 등은 그 칸의 몫이다
+        if !ctx.egui_wants_keyboard_input() {
+            if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)) {
+                self.redo();
+            }
+            if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
+                self.undo();
+            }
+            if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Y)) {
+                self.redo();
+            }
+        }
+        if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
+            self.save_edits();
+        }
+        if !ctx.egui_wants_keyboard_input()
+            && self.st.edit.dialog.is_none()
+            && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Delete))
+        {
+            self.open_delete();
+        }
+        if std::mem::take(&mut self.st.activate) && self.st.edit.dialog.is_none() {
+            self.open_edit();
+        }
+        if std::mem::take(&mut self.st.delete) && self.st.edit.dialog.is_none() {
+            self.open_delete();
+        }
         let dropped: Vec<PathBuf> = ui.input(|i| {
             i.raw
                 .dropped_files
@@ -315,7 +572,7 @@ impl StudioApp {
                 .collect()
         });
         for p in dropped {
-            self.import(p);
+            self.request(Pending::Import(p));
         }
     }
 
@@ -344,7 +601,7 @@ impl StudioApp {
                                 .on_hover_text(p.display().to_string())
                                 .clicked()
                             {
-                                self.import(p);
+                                self.request(Pending::Import(p));
                                 ui.close();
                             }
                         }
@@ -360,7 +617,70 @@ impl StudioApp {
                 }
                 ui.separator();
                 if ui.button("종료").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.request(Pending::Quit);
+                }
+            });
+            ui.menu_button("편집", |ui| {
+                let (can_undo, can_redo, dirty) = self
+                    .snapshot
+                    .as_ref()
+                    .map_or((false, false, false), |s| (s.can_undo, s.can_redo, s.dirty));
+                if ui
+                    .add_enabled(can_undo, egui::Button::new("실행 취소    Ctrl+Z"))
+                    .clicked()
+                {
+                    self.undo();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(can_redo, egui::Button::new("다시 실행    Ctrl+Y"))
+                    .clicked()
+                {
+                    self.redo();
+                    ui.close();
+                }
+                ui.separator();
+                let has = self.snapshot.is_some();
+                if ui
+                    .add_enabled(has, egui::Button::new("선택 항목 편집…    Enter"))
+                    .clicked()
+                {
+                    self.open_edit();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new("선택 항목 삭제…    Delete"))
+                    .clicked()
+                {
+                    self.open_delete();
+                    ui.close();
+                }
+                ui.add_enabled_ui(has, |ui| {
+                    ui.menu_button("새로 만들기", |ui| {
+                        for (label, kind) in [
+                            ("무조건 프레임", NewKind::Unconditional),
+                            ("이벤트 트리거 프레임", NewKind::EventTriggered),
+                            ("스포라딕 프레임", NewKind::Sporadic),
+                            ("시그널", NewKind::Signal),
+                            ("슬레이브 노드", NewKind::Slave),
+                            ("스케줄 테이블", NewKind::Schedule),
+                            ("인코딩 타입", NewKind::Encoding),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_new(kind);
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                ui.separator();
+                if ui
+                    .add_enabled(dirty, egui::Button::new("편집 저장    Ctrl+S"))
+                    .on_hover_text("편집한 내용을 새 리비전으로 저장한다")
+                    .clicked()
+                {
+                    self.save_edits();
+                    ui.close();
                 }
             });
             ui.menu_button("보기", |ui| {
@@ -400,6 +720,32 @@ impl StudioApp {
                 self.st.checker.open = true;
             }
             ui.separator();
+            let (can_undo, can_redo, dirty) = self
+                .snapshot
+                .as_ref()
+                .map_or((false, false, false), |s| (s.can_undo, s.can_redo, s.dirty));
+            if ui
+                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .on_hover_text("실행 취소 (Ctrl+Z)")
+                .clicked()
+            {
+                self.undo();
+            }
+            if ui
+                .add_enabled(can_redo, egui::Button::new("Redo"))
+                .on_hover_text("다시 실행 (Ctrl+Y)")
+                .clicked()
+            {
+                self.redo();
+            }
+            if ui
+                .add_enabled(dirty, egui::Button::new("저장"))
+                .on_hover_text("편집한 내용을 새 리비전으로 저장 (Ctrl+S)")
+                .clicked()
+            {
+                self.save_edits();
+            }
+            ui.separator();
             ui.toggle_value(&mut self.settings.hex, "hex")
                 .on_hover_text("숫자를 16진수로 표시");
             ui.separator();
@@ -435,8 +781,7 @@ impl StudioApp {
         if let Some(id) = open
             && Some(id) != current
         {
-            self.busy = true;
-            self.send(Command::OpenRevision(id));
+            self.request(Pending::OpenRevision(id));
         }
     }
 
@@ -475,8 +820,7 @@ impl StudioApp {
                             .link(format!("#{} {}  ({})", r.id, r.label, r.created_at))
                             .clicked()
                         {
-                            self.busy = true;
-                            self.send(Command::OpenRevision(r.id));
+                            self.request(Pending::OpenRevision(r.id));
                         }
                     }
                 }
@@ -507,6 +851,40 @@ impl StudioApp {
             Some(CheckerAction::SaveCsv(bytes)) => self.save_csv(ctx, bytes),
             None => {}
         }
+    }
+
+    /// 저장 안 한 변경이 있을 때 저장/버리기/취소를 묻는다(FR-EDT-09).
+    fn unsaved_window(&mut self, ctx: &egui::Context) {
+        let Some(act) = self.unsaved.clone() else {
+            return;
+        };
+        let what = match &act {
+            Pending::Quit => "종료하기 전에",
+            Pending::Import(_) | Pending::OpenProject(_) => "다른 파일을 열기 전에",
+            Pending::OpenRevision(_) => "다른 리비전을 열기 전에",
+        };
+        egui::Window::new("저장하지 않은 변경")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!("{what} 편집한 내용을 저장할까?"));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("저장").clicked() {
+                        self.unsaved = None;
+                        self.after_save = Some(act.clone());
+                        self.save_edits();
+                    }
+                    if ui.button("버리기").clicked() {
+                        self.unsaved = None;
+                        self.perform(act.clone());
+                    }
+                    if ui.button("취소").clicked() {
+                        self.unsaved = None;
+                    }
+                });
+            });
     }
 
     fn export_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
@@ -664,6 +1042,11 @@ impl eframe::App for StudioApp {
             self.notice = Some(m);
         }
         self.handle_input(ui);
+        // 창을 닫으려 할 때 저장 안 한 변경이 있으면 막고 확인을 받는다(FR-EDT-09)
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.dirty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.unsaved = Some(Pending::Quit);
+        }
 
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu_bar(ui);
@@ -686,6 +1069,8 @@ impl eframe::App for StudioApp {
             self.main_view(ui, &snap);
             self.checker_window(&ctx, &snap);
             self.export_window(&ctx, &snap);
+            self.edit_window(&ctx, &snap);
+            self.unsaved_window(&ctx);
         } else {
             self.welcome(ui);
         }

@@ -299,3 +299,29 @@ fn saving_creates_a_child_revision_and_keeps_the_history() {
     let redone = s.redo(&undone).expect("redo");
     assert!(!redone.dirty);
 }
+
+#[test]
+fn exporting_the_open_snapshot_includes_unsaved_edits() {
+    let (mut s, base) = open();
+    let edited = s.edit(&base, &EditOp::AddSlave("C".into())).expect("edit");
+    let dir = std::env::temp_dir().join(format!("ldf-edit-export-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("out.ldf");
+    let opts = ldf_engine::ExportOptions {
+        allow_errors: true,
+        ..ldf_engine::ExportOptions::default()
+    };
+    s.export_snapshot(&edited, &path, &opts).expect("export");
+    let text = std::fs::read_to_string(&path).expect("read");
+    assert!(text.contains("Slaves: A, B, C;"), "{text}");
+    // 저장된 리비전을 읽어 내보내면 편집 전 내용이고, 그 과정이 편집 기록을 지우지 않는다
+    let old = dir.join("old.ldf");
+    s.export(base.revision.id, &old, &opts).expect("export");
+    assert!(
+        !std::fs::read_to_string(&old)
+            .expect("read")
+            .contains("Slaves: A, B, C;")
+    );
+    assert!(s.undo(&edited).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

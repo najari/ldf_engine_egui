@@ -3,6 +3,7 @@
 pub mod bits;
 pub mod checker;
 pub mod context;
+pub mod edit;
 pub mod editor;
 pub mod export;
 pub mod nav;
@@ -76,9 +77,32 @@ pub struct UiState {
     pub checker: checker::CheckerState,
     /// 내보내기 창.
     pub export: export::ExportState,
+    /// 편집 대화상자.
+    pub edit: edit::EditState,
+    /// 내비게이션에서 항목을 더블클릭(또는 Enter)해 편집을 열라는 요청.
+    pub activate: bool,
+    /// 내비게이션에서 Delete 키로 삭제를 열라는 요청.
+    pub delete: bool,
 }
 
 impl UiState {
+    /// 편집·Undo 뒤: ID가 당겨졌을 수 있으므로 ID에 묶인 상태를 정리하고, 선택은 트리에도 반영한다.
+    pub fn after_model_edit(&mut self, model: &ldf_model::LdfModel) {
+        self.sched_open
+            .retain(|id| model.schedules.get(*id).is_some());
+        if self
+            .last_schedule
+            .is_some_and(|id| model.schedules.get(id).is_none())
+        {
+            self.last_schedule = None;
+        }
+        let key = crate::view::nav::NavKey::of_selection(&self.selection);
+        if let Some(key) = key {
+            self.tree_frames.set_one_selected(key.clone());
+            self.tree_nodes.set_one_selected(key);
+        }
+    }
+
     /// 새 모델이 열렸을 때: 이전 모델의 ID를 가리키는 상태를 모두 버린다.
     pub fn reset_for_new_model(&mut self) {
         self.selection = Selection::Cluster;

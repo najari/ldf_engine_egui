@@ -194,8 +194,8 @@ impl Session {
             reused: false,
         })
     }
-    /// 리비전을 열어 스냅샷을 만든다.
-    pub fn open_revision(&mut self, id: i64) -> Result<Arc<ModelSnapshot>> {
+    /// 리비전을 읽어 스냅샷을 만든다. 편집 상태는 건드리지 않는다(내보내기 등 읽기 전용 용도).
+    pub fn read_revision(&mut self, id: i64) -> Result<ModelSnapshot> {
         let StoredRevision {
             info,
             model,
@@ -204,14 +204,7 @@ impl Session {
         } = self.store.load_revision(id)?;
         let text = decode::decode(&source, &info.encoding);
         self.version += 1;
-        self.working = Some(Working {
-            base: info.id,
-            saved: text.clone(),
-            undo: Vec::new(),
-            redo: Vec::new(),
-            current: text.clone(),
-        });
-        Ok(Arc::new(ModelSnapshot {
+        Ok(ModelSnapshot {
             version: self.version,
             line_index: LineIndex::new(&text),
             source: text,
@@ -221,9 +214,21 @@ impl Session {
             dirty: false,
             can_undo: false,
             can_redo: false,
-        }))
+        })
     }
 
+    /// 리비전을 열어 스냅샷을 만들고 그 리비전에서 새로 편집을 시작한다.
+    pub fn open_revision(&mut self, id: i64) -> Result<Arc<ModelSnapshot>> {
+        let snap = self.read_revision(id)?;
+        self.working = Some(Working {
+            base: snap.revision.id,
+            saved: snap.source.clone(),
+            undo: Vec::new(),
+            redo: Vec::new(),
+            current: snap.source.clone(),
+        });
+        Ok(Arc::new(snap))
+    }
     /// 편집 상태가 `snap`의 것인지 확인하고, 아니면 `snap`을 바탕으로 새로 시작한다.
     fn working_for(&mut self, snap: &ModelSnapshot) -> &mut Working {
         let stale = self

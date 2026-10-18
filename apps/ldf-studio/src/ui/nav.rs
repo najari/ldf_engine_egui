@@ -57,6 +57,8 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         tree_frames,
         tree_nodes,
         selection,
+        activate,
+        delete,
         ..
     } = st;
     let state: &mut TreeViewState<NavKey> = match tab {
@@ -68,14 +70,22 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
     }
 
     ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-        let (_, actions) =
+        let (response, actions) =
             TreeView::new(Id::new(("nav-tree", tab))).show_state(ui, state, |b| draw(b, root, 0));
         for action in actions {
-            if let Action::SetSelected(keys) = action
-                && let Some(key) = keys.first()
-            {
-                *selection = key.selection(model);
+            match action {
+                Action::SetSelected(keys) => {
+                    if let Some(key) = keys.first() {
+                        *selection = key.selection(model);
+                    }
+                }
+                Action::Activate(_) => *activate = true,
+                _ => {}
             }
+        }
+        // 트리에 포커스가 있을 때의 Delete는 선택한 항목의 삭제 요청이다
+        if response.has_focus() && ui.input(|i| i.key_pressed(Key::Delete)) {
+            *delete = true;
         }
     });
 }

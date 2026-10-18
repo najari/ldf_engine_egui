@@ -71,6 +71,18 @@ impl NavNode {
 }
 
 impl NavKey {
+    /// 화면 선택에 대응하는 트리 항목(트리에 없는 선택이면 `None`).
+    pub fn of_selection(sel: &Selection) -> Option<NavKey> {
+        match sel {
+            Selection::Group(g) => Some(NavKey::Group(*g)),
+            Selection::Frame(f) => Some(NavKey::Frame(*f)),
+            Selection::Command(c) => Some(NavKey::Command(c)),
+            Selection::Node(n) => Some(NavKey::Node(*n)),
+            Selection::NodeGroup(n, g) => Some(NavKey::NodeGroup(*n, *g)),
+            _ => None,
+        }
+    }
+
     /// 트리 선택을 화면 선택으로 바꾼다.
     pub fn selection(&self, m: &LdfModel) -> Selection {
         match self {
