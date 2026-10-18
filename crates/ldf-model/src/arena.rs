@@ -73,6 +73,14 @@ impl<I: ArenaId, T> Arena<I, T> {
         id
     }
 
+    /// 항목을 `index` 위치에 끼워 넣는다(끝을 넘으면 끝에). 뒤에 있던 항목의 ID는 하나씩 밀리므로,
+    /// 호출한 쪽이 그 ID를 가리키는 참조를 고쳐야 한다.
+    pub fn insert(&mut self, index: usize, item: T) -> I {
+        let at = index.min(self.items.len());
+        self.items.insert(at, item);
+        I::from_index(at)
+    }
+
     /// 항목을 빼낸다. 뒤에 있던 항목의 ID는 하나씩 당겨지므로, 호출한 쪽이 그 ID를 가리키는 참조를 고쳐야 한다.
     pub fn remove(&mut self, id: I) -> Option<T> {
         (id.index() < self.items.len()).then(|| self.items.remove(id.index()))

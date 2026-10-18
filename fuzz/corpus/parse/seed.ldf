@@ -1,0 +1,8 @@
+LIN_description_file;
+LIN_protocol_version = "2.1";
+LIN_language_version = "2.1";
+LIN_speed = 19.2 kbps;
+Nodes { Master: M, 5 ms, 0.1 ms; Slaves: A; }
+Signals { S: 8, 0, A, M; }
+Frames { F: 1, A, 1 { S, 0; } }
+Schedule_tables { T { F delay 10 ms; } }

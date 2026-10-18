@@ -41,6 +41,7 @@ rfd = "0.17"
 
 # 테스트
 insta = { version = "1", features = ["json"] }
+proptest = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -17,3 +17,10 @@
 .idea/
 Thumbs.db
 desktop.ini
+
+# cargo-fuzz 산출물
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/Cargo.lock
+/fuzz/corpus/*/*
+!/fuzz/corpus/parse/seed.ldf

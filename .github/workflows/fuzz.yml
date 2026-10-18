@@ -1,0 +1,30 @@
+name: fuzz
+# 파서·왕복 퍼징(PRD G3: 1시간 크래시 0). 시간이 오래 걸려 푸시마다 돌리지 않고 수동 또는 주 1회 실행한다.
+# 주의: 이 작업 흐름은 로컬에서 실행해 확인하지 못했다(cargo-fuzz는 nightly + Linux가 가장 안정적이다).
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 대상별 실행 시간(초)
+        default: "600"
+  schedule:
+    - cron: "0 3 * * 0"
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse, roundtrip]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=${{ github.event.inputs.seconds || '600' }}
+        working-directory: fuzz
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/

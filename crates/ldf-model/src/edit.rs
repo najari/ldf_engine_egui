@@ -544,6 +544,77 @@ fn visit_schedule_refs(m: &mut LdfModel, f: &mut dyn FnMut(&mut Ref<ScheduleId>)
     }
 }
 
+/// 새 항목이 `at`에 끼어든 뒤 그 위치 이후의 ID를 하나씩 민다.
+fn unshift<T: ArenaId>(at: usize) -> impl FnMut(&mut Ref<T>) {
+    move |r| {
+        if let Ref::Resolved(id) = r
+            && id.index() >= at
+        {
+            *id = T::from_index(id.index() + 1);
+        }
+    }
+}
+
+/// 이 섹션들이 파일에 나타나는 순서(원문 순서 먼저, 없는 섹션은 정규 순서로 뒤에). 다시 읽으면 항목이 이 순서로 놓인다.
+fn section_rank(m: &LdfModel, name: &str, canonical: &[&str]) -> usize {
+    let mut order: Vec<&str> = Vec::new();
+    for n in m.section_order.iter().map(String::as_str) {
+        if canonical.contains(&n) && !order.contains(&n) {
+            order.push(n);
+        }
+    }
+    for n in canonical {
+        if !order.contains(n) {
+            order.push(n);
+        }
+    }
+    order.iter().position(|n| *n == name).unwrap_or(order.len())
+}
+
+const FRAME_SECTIONS: [&str; 4] = [
+    "Frames",
+    "Sporadic_frames",
+    "Event_triggered_frames",
+    "Diagnostic_frames",
+];
+
+fn frame_section(k: &FrameKind) -> &'static str {
+    match k {
+        FrameKind::Unconditional { .. } => "Frames",
+        FrameKind::Sporadic { .. } => "Sporadic_frames",
+        FrameKind::EventTriggered { .. } => "Event_triggered_frames",
+        FrameKind::Diagnostic { .. } => "Diagnostic_frames",
+    }
+}
+
+/// 프레임을 다시 읽었을 때와 같은 위치(자기 종류 섹션의 끝)에 넣고, 밀린 ID를 가리키는 참조를 고친다.
+fn insert_frame(m: &mut LdfModel, frame: Frame) {
+    let rank = section_rank(m, frame_section(&frame.kind), &FRAME_SECTIONS);
+    let at = m
+        .frames
+        .iter()
+        .filter(|(_, f)| section_rank(m, frame_section(&f.kind), &FRAME_SECTIONS) <= rank)
+        .count();
+    m.frames.insert(at, frame);
+    visit_frame_refs(m, &mut unshift(at));
+}
+
+fn insert_signal(m: &mut LdfModel, signal: Signal) {
+    let name = |k: SignalKind| match k {
+        SignalKind::Normal => "Signals",
+        SignalKind::Diagnostic => "Diagnostic_signals",
+    };
+    let sections = ["Signals", "Diagnostic_signals"];
+    let rank = section_rank(m, name(signal.kind), &sections);
+    let at = m
+        .signals
+        .iter()
+        .filter(|(_, s)| section_rank(m, name(s.kind), &sections) <= rank)
+        .count();
+    m.signals.insert(at, signal);
+    visit_signal_refs(m, &mut unshift(at));
+}
+
 /// 인덱스 `removed`가 빠진 뒤 그보다 큰 ID를 하나씩 당긴다. `removed`를 가리키는 참조는 호출 전에 정리되어 있어야 한다.
 fn shift<T: ArenaId>(removed: usize) -> impl FnMut(&mut Ref<T>) {
     move |r| {
@@ -690,14 +761,15 @@ fn apply_signal_draft(m: &mut LdfModel, id: Option<SignalId>, d: &SignalDraft) -
     match id {
         Some(id) => {
             if let Some(s) = m.signals.get_mut(id) {
+                // 일반 시그널과 진단 시그널은 서로 다른 섹션에 있어 종류를 바꾸면 위치가 달라진다
+                if publisher.is_some() != (s.kind == SignalKind::Normal) {
+                    return invalid(
+                        "시그널 종류(일반/진단)는 바꿀 수 없다: 발행 노드가 있으면 일반, 없으면 진단 시그널이다",
+                    );
+                }
                 s.name = d.name.clone();
                 s.size_bits = d.size_bits;
                 s.init = d.init.clone();
-                s.kind = if publisher.is_some() {
-                    SignalKind::Normal
-                } else {
-                    s.kind
-                };
                 s.publisher = publisher;
                 s.subscribers = subscribers;
                 s.encodings = encodings;
@@ -709,16 +781,19 @@ fn apply_signal_draft(m: &mut LdfModel, id: Option<SignalId>, d: &SignalDraft) -
             } else {
                 SignalKind::Diagnostic
             };
-            m.signals.push(Signal {
-                name: d.name.clone(),
-                size_bits: d.size_bits,
-                init: d.init.clone(),
-                publisher,
-                subscribers,
-                encodings,
-                kind,
-                span: None,
-            });
+            insert_signal(
+                m,
+                Signal {
+                    name: d.name.clone(),
+                    size_bits: d.size_bits,
+                    init: d.init.clone(),
+                    publisher,
+                    subscribers,
+                    encodings,
+                    kind,
+                    span: None,
+                },
+            );
         }
     }
     Ok(())
@@ -876,11 +951,14 @@ impl EditOp {
                 {
                     return not_found("노드", publisher.unresolved_name().unwrap_or(""));
                 }
-                m.frames.push(Frame {
-                    name: d.name.clone(),
-                    kind,
-                    span: None,
-                });
+                insert_frame(
+                    m,
+                    Frame {
+                        name: d.name.clone(),
+                        kind,
+                        span: None,
+                    },
+                );
             }
             EditOp::EditFrame { name, draft } => {
                 let id = frame_by_name(m, name)?;

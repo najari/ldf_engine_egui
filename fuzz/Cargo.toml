@@ -1,0 +1,31 @@
+[package]
+name = "ldf-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# 작업공간 밖에서 따로 빌드한다(`cargo +nightly fuzz run <대상>`). 메인 작업공간의 stable 도구 체인에는 영향이 없다.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ldf-engine = { path = "../crates/ldf-engine" }
+ldf-model = { path = "../crates/ldf-model" }
+ldf-writer = { path = "../crates/ldf-writer" }
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+test = false
+doc = false
+bench = false
