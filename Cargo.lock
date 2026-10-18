@@ -189,11 +189,8 @@ name = "ldf-engine"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
- "ldf-check",
  "ldf-model",
  "ldf-store",
- "ldf-syntax",
- "ldf-writer",
  "thiserror",
 ]
 
