@@ -1006,7 +1006,11 @@ impl<'s> Lowerer<'s> {
                     [Elem::Token(t)] if t.kind == TokenKind::Number => parse_u64(t.span.text(src)),
                     _ => None,
                 });
-                let text = g.get(2).and_then(|g| string_lit(src, g));
+                // 설명은 생략할 수 있다(`logical_value, 값 (, 설명);`, LIN 2.2A §9.2.6.1). 따옴표 없는 글자 같은 다른 모양은 오류다
+                let text = match g.get(2) {
+                    None => Some(String::new()),
+                    Some(g) => string_lit(src, g),
+                };
                 if let (Some(value), Some(text)) = (value, text) {
                     Some(EncodingEntry::Logical { value, text })
                 } else {

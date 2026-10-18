@@ -336,6 +336,37 @@ fn encodings_are_parsed() {
 }
 
 #[test]
+fn logical_value_text_is_optional() {
+    // LIN 2.2A §9.2.6.1: `logical_value, <값> ( , <설명>) ;`
+    let l = load(
+        "Signal_encoding_types { E { logical_value, 0; logical_value, 1, \"on\"; physical_value, 2, 9, 1, 0; } }",
+    );
+    assert!(l.diagnostics.is_empty(), "{:?}", l.diagnostics);
+    let enc = l.model.encodings.get(EncodingId(0)).expect("enc");
+    assert_eq!(
+        enc.entries[0],
+        EncodingEntry::Logical {
+            value: 0,
+            text: String::new()
+        }
+    );
+    assert_eq!(enc.entries.len(), 3);
+}
+
+#[test]
+fn malformed_logical_value_is_still_an_error() {
+    // 값이 없거나 숫자가 아니면 오류로 남는다
+    for body in [
+        "logical_value, 0, off;",
+        "logical_value;",
+        "logical_value, x, \"a\";",
+    ] {
+        let l = load(&format!("Signal_encoding_types {{ E {{ {body} }} }}"));
+        assert_eq!(l.diagnostics.len(), 1, "{body}: {:?}", l.diagnostics);
+    }
+}
+
+#[test]
 fn unknown_and_unmodelled_sections_are_kept_raw() {
     let l = loaded();
     let names: Vec<_> = l
