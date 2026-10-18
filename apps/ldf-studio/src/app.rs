@@ -2,12 +2,13 @@
 
 use crate::fonts;
 use crate::ui::checker::CheckerAction;
+use crate::ui::export::{Blocked, ExportAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
 use crate::view::{self, Selection};
 use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
-use ldf_engine::{Command, Engine, Event, ModelSnapshot, RevisionInfo};
+use ldf_engine::{Command, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo};
 use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -35,9 +36,18 @@ impl Default for Settings {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Mode {
+    Open,
+    Project,
+    Export,
+}
+
 enum Picked {
     Ldf(PathBuf),
     Project(PathBuf),
+    /// 내보낼 파일 경로(옵션은 xport_pending).
+    Export(PathBuf),
 }
 
 /// LDF Studio 앱.
@@ -52,6 +62,8 @@ pub struct StudioApp {
     fatal: Option<String>,
     busy: bool,
     picker: Option<Receiver<Option<Picked>>>,
+    /// 파일 선택을 기다리는 내보내기 옵션.
+    export_pending: Option<ExportOptions>,
     /// 백그라운드 작업(CSV 저장 등)의 결과 메시지.
     msg_tx: Sender<String>,
     msg_rx: Receiver<String>,
@@ -104,6 +116,7 @@ impl StudioApp {
             fatal: None,
             busy: false,
             picker: None,
+            export_pending: None,
             msg_tx,
             msg_rx,
             title: String::new(),
@@ -137,6 +150,10 @@ impl StudioApp {
 
     /// 파일 대화상자는 별도 스레드에서 띄워 UI 프레임을 막지 않는다.
     fn pick(&mut self, ctx: &egui::Context, project: bool) {
+        self.pick_with(ctx, if project { Mode::Project } else { Mode::Open });
+    }
+
+    fn pick_with(&mut self, ctx: &egui::Context, mode: Mode) {
         if self.picker.is_some() {
             return;
         }
@@ -145,19 +162,23 @@ impl StudioApp {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let dialog = rfd::FileDialog::new();
-            let picked = if project {
-                dialog
+            let picked = match mode {
+                Mode::Project => dialog
                     .add_filter("LDF Studio 프로젝트", &["ldfdb"])
                     .set_title("프로젝트 열기 또는 만들기")
                     .save_file()
-                    .map(Picked::Project)
-            } else {
-                dialog
+                    .map(Picked::Project),
+                Mode::Open => dialog
                     .add_filter("LIN Description File", &["ldf"])
                     .add_filter("모든 파일", &["*"])
                     .set_title("LDF 열기")
                     .pick_file()
-                    .map(Picked::Ldf)
+                    .map(Picked::Ldf),
+                Mode::Export => dialog
+                    .add_filter("LIN Description File", &["ldf"])
+                    .set_title("LDF로 내보내기")
+                    .save_file()
+                    .map(Picked::Export),
             };
             let _ = tx.send(picked);
             ctx.request_repaint();
@@ -176,12 +197,27 @@ impl StudioApp {
                         self.snapshot = None;
                         self.st.reset_for_new_model();
                     }
-                    None => {}
+                    Some(Picked::Export(path)) => self.start_export(path),
+                    None => self.export_pending = None,
                 }
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(std::sync::mpsc::TryRecvError::Disconnected) => self.picker = None,
         }
+    }
+
+    fn start_export(&mut self, path: PathBuf) {
+        let (Some(options), Some(snap)) = (self.export_pending.take(), self.snapshot.as_ref())
+        else {
+            return;
+        };
+        let revision = snap.revision.id;
+        self.busy = true;
+        self.send(Command::Export {
+            revision,
+            path,
+            options,
+        });
     }
 
     fn poll_engine(&mut self, ctx: &egui::Context) {
@@ -207,6 +243,36 @@ impl StudioApp {
                     self.snapshot = Some(snapshot);
                 }
                 Event::Revisions(r) => self.revisions = r,
+                Event::Exported(r) => {
+                    self.busy = false;
+                    let mut msg = format!(
+                        "내보냈다: {} ({} 바이트, {})",
+                        r.path.display(),
+                        r.bytes,
+                        r.encoding
+                    );
+                    if !r.verified && r.warnings.is_empty() {
+                        msg.push_str(" — 다시 읽은 결과가 원본과 다르다");
+                    }
+                    if !r.warnings.is_empty() {
+                        msg.push_str(&format!(" — 경고: {}", r.warnings.join("; ")));
+                    }
+                    self.notice = Some(msg);
+                }
+                Event::ExportBlocked {
+                    revision,
+                    path,
+                    options,
+                    errors,
+                } => {
+                    self.busy = false;
+                    self.st.export.blocked = Some(Blocked {
+                        revision,
+                        path,
+                        options,
+                        errors,
+                    });
+                }
                 Event::Failed(msg) => {
                     self.busy = false;
                     self.notice = Some(msg);
@@ -283,6 +349,14 @@ impl StudioApp {
                         }
                     });
                 });
+                ui.separator();
+                if ui
+                    .add_enabled(self.snapshot.is_some(), egui::Button::new("내보내기…"))
+                    .clicked()
+                {
+                    self.st.export.open = true;
+                    ui.close();
+                }
                 ui.separator();
                 if ui.button("종료").clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -430,6 +504,28 @@ impl StudioApp {
                 });
             }
             Some(CheckerAction::SaveCsv(bytes)) => self.save_csv(ctx, bytes),
+            None => {}
+        }
+    }
+
+    fn export_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
+        match crate::ui::export::show(ctx, snap, &mut self.st.export) {
+            Some(ExportAction::Choose(options)) => {
+                self.export_pending = Some(options);
+                self.pick_with(ctx, Mode::Export);
+            }
+            Some(ExportAction::Retry(b)) => {
+                self.busy = true;
+                let allow = ExportOptions {
+                    allow_errors: true,
+                    ..b.options
+                };
+                self.send(Command::Export {
+                    revision: b.revision,
+                    path: b.path,
+                    options: allow,
+                });
+            }
             None => {}
         }
     }
@@ -588,6 +684,7 @@ impl eframe::App for StudioApp {
         } else if let Some(snap) = snap {
             self.main_view(ui, &snap);
             self.checker_window(&ctx, &snap);
+            self.export_window(&ctx, &snap);
         } else {
             self.welcome(ui);
         }

@@ -1,6 +1,7 @@
 //! 워커 스레드와 `Command`/`Event` 채널. UI는 여기만 호출하고, 결과는 새 스냅샷을 담은 이벤트로 받는다.
 
 use crate::error::{EngineError, Result};
+use crate::export::{ExportOptions, ExportReport};
 use crate::session::{ModelSnapshot, Session};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use ldf_store::RevisionInfo;
@@ -39,6 +40,15 @@ pub enum Command {
     OpenRevision(i64),
     /// 리비전 목록을 다시 보낸다.
     RefreshRevisions,
+    /// 리비전을 LDF 파일로 내보낸다(FR-EXP).
+    Export {
+        /// 내보낼 리비전.
+        revision: i64,
+        /// 대상 파일.
+        path: PathBuf,
+        /// 옵션.
+        options: ExportOptions,
+    },
 }
 
 /// 워커가 UI에 돌려주는 이벤트.
@@ -62,6 +72,19 @@ pub enum Event {
     },
     /// 리비전 목록만 갱신되었다.
     Revisions(Vec<RevisionInfo>),
+    /// 내보내기를 마쳤다.
+    Exported(ExportReport),
+    /// 오류 진단이 남아 있어 내보내기를 멈췄다. 확인을 받으면 llow_errors로 다시 보낸다(FR-EXP-04).
+    ExportBlocked {
+        /// 내보내려던 리비전.
+        revision: i64,
+        /// 대상 파일.
+        path: PathBuf,
+        /// 옵션.
+        options: ExportOptions,
+        /// 남은 오류 개수.
+        errors: usize,
+    },
     /// 명령이 실패했다. 상태는 바뀌지 않았다.
     Failed(String),
     /// 워커가 패닉했다(버그). 다시 시작이 필요하다.
@@ -221,6 +244,20 @@ fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
             }])
         }
         Command::RefreshRevisions => Ok(vec![Event::Revisions(session.revisions()?)]),
+        Command::Export {
+            revision,
+            path,
+            options,
+        } => match session.export(revision, &path, &options) {
+            Ok(report) => Ok(vec![Event::Exported(report)]),
+            Err(EngineError::ExportBlocked { errors }) => Ok(vec![Event::ExportBlocked {
+                revision,
+                path,
+                options,
+                errors,
+            }]),
+            Err(e) => Err(e),
+        },
     }
 }
 

@@ -10,6 +10,7 @@ publish.workspace = true
 ldf-model.workspace = true
 ldf-check.workspace = true
 ldf-store.workspace = true
+ldf-writer.workspace = true
 crossbeam-channel.workspace = true
 thiserror.workspace = true
 

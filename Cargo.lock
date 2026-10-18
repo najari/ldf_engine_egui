@@ -1787,6 +1787,7 @@ dependencies = [
  "ldf-check",
  "ldf-model",
  "ldf-store",
+ "ldf-writer",
  "thiserror 2.0.21",
 ]
 

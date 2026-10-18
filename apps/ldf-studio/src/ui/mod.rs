@@ -4,6 +4,7 @@ pub mod bits;
 pub mod checker;
 pub mod context;
 pub mod editor;
+pub mod export;
 pub mod nav;
 pub mod props;
 pub mod schedule;
@@ -73,6 +74,8 @@ pub struct UiState {
     pub ctx_cache: Cache<CtxKeyCache, Table>,
     /// Checker 창.
     pub checker: checker::CheckerState,
+    /// 내보내기 창.
+    pub export: export::ExportState,
 }
 
 impl UiState {
