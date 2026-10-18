@@ -63,9 +63,11 @@ impl Rule for R0101 {
         }
 
         // 보관 섹션
-        for s in &m.unknown_sections {
-            if !section_allowed(&s.name, p) {
-                bad(&format!("`{}` 섹션", s.name), s.span);
+        let composition = m.composition.iter().map(|c| (c.keyword.as_str(), c.span));
+        let raw = m.unknown_sections.iter().map(|s| (s.name.as_str(), s.span));
+        for (name, span) in composition.chain(raw) {
+            if !section_allowed(name, p) {
+                bad(&format!("`{name}` 섹션"), span);
             }
         }
 

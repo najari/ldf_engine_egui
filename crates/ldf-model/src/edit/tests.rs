@@ -1,5 +1,5 @@
 use super::*;
-use crate::load;
+use crate::{CompositeNode, Configuration, load};
 
 /// 모든 종류의 참조를 가진 작은 클러스터(참조가 전부 해석된다).
 const SAMPLE: &str = r#"
@@ -515,4 +515,124 @@ fn frames_only_accept_their_own_operations() {
     }
     .apply(&mut m);
     assert!(matches!(kind, Err(EditError::Invalid(_))));
+}
+
+#[allow(clippy::type_complexity)]
+fn comp(keyword: &str, cfgs: &[(&str, &[(&str, &[&str])])]) -> Composition {
+    Composition {
+        keyword: keyword.to_owned(),
+        configurations: cfgs
+            .iter()
+            .map(|(name, nodes)| Configuration {
+                name: (*name).to_owned(),
+                composites: nodes
+                    .iter()
+                    .map(|(n, l)| CompositeNode {
+                        name: (*n).to_owned(),
+                        logical: l.iter().map(|s| (*s).to_owned()).collect(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        colon_form: false,
+        span: None,
+    }
+}
+
+#[test]
+fn composition_can_be_set_replaced_and_removed() {
+    let mut m = model();
+    assert!(m.composition.is_none());
+    let c = comp("composite", &[("cfg", &[("Phys", &["A", "B"])])]);
+    EditOp::SetComposition(Some(c.clone()))
+        .apply(&mut m)
+        .expect("set");
+    assert_eq!(m.composition, Some(c));
+    // 새 섹션은 Nodes 바로 뒤에 놓인다
+    let nodes = m
+        .section_order
+        .iter()
+        .position(|n| n == "Nodes")
+        .expect("Nodes");
+    assert_eq!(m.section_order[nodes + 1], "composite");
+    // 이름을 바꾸면 자리를 지킨다(중복 없이)
+    let c2 = comp("Node_composition", &[("cfg", &[("Phys", &["A"])])]);
+    EditOp::SetComposition(Some(c2))
+        .apply(&mut m)
+        .expect("replace");
+    assert_eq!(
+        m.section_order
+            .iter()
+            .filter(|n| n.contains("omposit"))
+            .count(),
+        1
+    );
+    assert_eq!(m.section_order[nodes + 1], "Node_composition");
+    EditOp::SetComposition(None).apply(&mut m).expect("remove");
+    assert!(m.composition.is_none());
+    assert!(!m.section_order.iter().any(|n| n.contains("omposit")));
+}
+
+#[test]
+fn invalid_compositions_are_refused_and_leave_the_model_alone() {
+    let before = model();
+    let bad = [
+        comp("composite", &[]),
+        comp("composite", &[("cfg", &[])]),
+        comp("composite", &[("cfg", &[("P", &[])])]),
+        comp("composite", &[("1bad", &[("P", &["A"])])]),
+        comp("composite", &[("cfg", &[("P", &["A", "A"])])]),
+        comp("composite", &[("cfg", &[("P", &["A"]), ("P", &["B"])])]),
+        comp(
+            "composite",
+            &[("cfg", &[("P", &["A"])]), ("cfg", &[("Q", &["B"])])],
+        ),
+        comp("composite", &[("cfg", &[("P", &["A"]), ("Q", &["A"])])]),
+        comp("other", &[("cfg", &[("P", &["A"])])]),
+    ];
+    for c in bad {
+        let mut m = before.clone();
+        assert!(
+            EditOp::SetComposition(Some(c.clone()))
+                .apply(&mut m)
+                .is_err(),
+            "{c:?}"
+        );
+        assert_eq!(m, before);
+    }
+}
+
+#[test]
+fn renaming_and_deleting_nodes_follow_into_the_composition() {
+    let mut m = model();
+    EditOp::SetComposition(Some(comp(
+        "composite",
+        &[
+            ("c1", &[("Phys", &["A", "B"])]),
+            ("c2", &[("Only", &["B"])]),
+        ],
+    )))
+    .apply(&mut m)
+    .expect("set");
+    EditOp::RenameNode {
+        from: "A".into(),
+        to: "A2".into(),
+    }
+    .apply(&mut m)
+    .expect("rename");
+    let c = m.composition.as_ref().expect("composition");
+    assert_eq!(c.configurations[0].composites[0].logical, ["A2", "B"]);
+    // B를 지우면 c2는 비어 사라지고 c1에는 A2만 남는다
+    EditOp::DeleteNode("B".into())
+        .apply(&mut m)
+        .expect("delete");
+    let c = m.composition.as_ref().expect("composition");
+    assert_eq!(c.configurations.len(), 1);
+    assert_eq!(c.configurations[0].composites[0].logical, ["A2"]);
+    // 마지막 논리 노드까지 지우면 노드 구성이 통째로 사라진다
+    EditOp::DeleteNode("A2".into())
+        .apply(&mut m)
+        .expect("delete");
+    assert!(m.composition.is_none());
+    assert!(!m.section_order.iter().any(|n| n == "composite"));
 }

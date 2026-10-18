@@ -24,6 +24,8 @@ pub enum ObjectKind {
     Schedule,
     /// 슬레이브 노드 속성.
     NodeAttributes,
+    /// 노드 구성(configuration 하나).
+    Composition,
 }
 
 impl ObjectKind {
@@ -37,6 +39,7 @@ impl ObjectKind {
             ObjectKind::Encoding => "Encoding",
             ObjectKind::Schedule => "Schedule",
             ObjectKind::NodeAttributes => "Node attributes",
+            ObjectKind::Composition => "Composition",
         }
     }
 }
@@ -418,6 +421,29 @@ fn encoding_items(m: &LdfModel) -> Vec<Item> {
         .collect()
 }
 
+/// 노드 구성: 구성 하나가 객체 하나이고, 합성 노드마다 논리 노드 목록이 필드다.
+fn composition_items(m: &LdfModel) -> Vec<Item> {
+    let Some(c) = &m.composition else {
+        return Vec::new();
+    };
+    c.configurations
+        .iter()
+        .map(|cfg| {
+            let mut fields: Fields = vec![f("section", &c.keyword)];
+            fields.extend(
+                cfg.composites
+                    .iter()
+                    .map(|n| f(&n.name, n.logical.join(", "))),
+            );
+            Item {
+                name: cfg.name.clone(),
+                fields,
+                key: None,
+            }
+        })
+        .collect()
+}
+
 fn schedule_items(m: &LdfModel) -> Vec<Item> {
     let node = |r: &Ref<crate::NodeId>| rname(r, |id| m.nodes.get(id).map(|n| n.name.clone()));
     let frame = |r: &Ref<crate::FrameId>| rname(r, |id| m.frames.get(id).map(|n| n.name.clone()));
@@ -556,6 +582,12 @@ pub fn diff(a: &LdfModel, b: &LdfModel) -> Diff {
         ObjectKind::NodeAttributes,
         &attr_items(a),
         &attr_items(b),
+        &mut entries,
+    );
+    compare(
+        ObjectKind::Composition,
+        &composition_items(a),
+        &composition_items(b),
         &mut entries,
     );
     Diff { entries }

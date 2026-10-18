@@ -395,6 +395,38 @@ pub struct ScheduleTable {
     pub span: Option<Span>,
 }
 
+/// 합성 노드(composite_node): 물리 슬레이브 하나를 이루는 논리 노드들.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompositeNode {
+    /// 합성 노드 이름.
+    pub name: String,
+    /// 논리 노드 이름(노드 속성에 있어야 한다).
+    pub logical: Vec<String>,
+}
+
+/// 노드 구성(`configuration`): 클러스터를 이루는 합성 노드 모음 하나.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Configuration {
+    /// 구성 이름.
+    pub name: String,
+    /// 합성 노드들.
+    pub composites: Vec<CompositeNode>,
+}
+
+/// 노드 구성 섹션(`composite { configuration … }`, LIN 2.2A §9.2.2.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Composition {
+    /// 섹션 이름: `composite` 또는 `Node_composition`.
+    pub keyword: String,
+    /// 구성들.
+    pub configurations: Vec<Configuration>,
+    /// 합성 노드를 `이름: a, b;`로 쓴 원문이었는지(출력할 때 같은 모양을 따른다).
+    #[serde(default)]
+    pub colon_form: bool,
+    /// 원문 위치. 편집으로 생겼으면 `None`.
+    pub span: Option<Span>,
+}
+
 /// 모델이 해석하지 않는 섹션(왕복 보존용).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawSection {
@@ -446,6 +478,9 @@ pub struct LdfModel {
     pub encodings: Arena<EncodingId, EncodingType>,
     /// 스케줄 테이블.
     pub schedules: Arena<ScheduleId, ScheduleTable>,
+    /// 노드 구성(`composite`/`Node_composition`). 모양이 맞지 않는 섹션은 `unknown_sections`에 원문으로 남는다.
+    #[serde(default)]
+    pub composition: Option<Composition>,
     /// 해석하지 않은 섹션.
     pub unknown_sections: Vec<RawSection>,
     /// 원문의 최상위 문장 순서(왕복 출력용).

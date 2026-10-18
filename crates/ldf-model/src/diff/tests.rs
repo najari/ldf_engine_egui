@@ -243,3 +243,29 @@ fn diff_is_antisymmetric_for_added_and_removed() {
     let (add_ba, rem_ba, _, _) = ba.counts();
     assert_eq!((add_ab, rem_ab), (rem_ba, add_ba));
 }
+
+#[test]
+fn composition_changes_are_reported_per_configuration() {
+    let a = load(&format!(
+        "{A}composite {{ configuration c1 {{ P {{ S1; }} }} configuration c2 {{ Q {{ S2; }} }} }}"
+    ))
+    .model;
+    let b = load(&format!(
+        "{A}composite {{ configuration c1 {{ P {{ S1, S2; }} }} configuration c3 {{ R {{ S1; }} }} }}"
+    ))
+    .model;
+    let d = diff(&a, &b);
+    let changed = find(&d, ObjectKind::Composition, "c1").expect("c1");
+    assert_eq!(changed.change, Change::Changed);
+    let f = field(changed, "P").expect("P");
+    assert_eq!((f.before.as_str(), f.after.as_str()), ("S1", "S1, S2"));
+    assert_eq!(
+        find(&d, ObjectKind::Composition, "c2").map(|e| &e.change),
+        Some(&Change::Removed)
+    );
+    assert_eq!(
+        find(&d, ObjectKind::Composition, "c3").map(|e| &e.change),
+        Some(&Change::Added)
+    );
+    assert!(diff(&a, &a).is_empty());
+}

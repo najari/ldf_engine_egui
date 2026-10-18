@@ -105,6 +105,7 @@ LIN_protocol_version = "2.1";
 LIN_language_version = "2.1";
 LIN_speed = 19.2 kbps;
 Nodes { Master: M, 5 ms, 0.1 ms; Slaves: A, B; }
+composite { configuration cfg { Phys { A, B; } } }
 Signals { Cmd: 8, 0, M, A, B; Pos: 16, 0, A, M; Blob: 16, {1, 2}, B, M; Orphan: 4, 0, Ghost, M; }
 Diagnostic_signals { MasterReqB0: 8, 0; }
 Frames { FCmd: 1, M, 2 { Cmd, 0; } FA: 2, A, 2 { Pos, 0; } FB: 3, B, 2 { Blob, 0; } }
@@ -170,6 +171,19 @@ fn objects_refer_to_each_other_by_name() {
     // 모델이 해석하지 않은 것은 원문으로 나간다
     assert_eq!(j["unknown_sections"][0]["name"], "Vendor_extension");
     assert_eq!(j["node_attributes"][0]["extra"][0]["key"], "wakeup_time");
+    // 노드 구성은 모델로 나간다(원문 보관 섹션에 없다)
+    assert_eq!(
+        j["composition"],
+        serde_json::json!({
+            "keyword": "composite",
+            "configurations": [{ "name": "cfg", "composites": [{ "name": "Phys", "logical": ["A", "B"] }] }],
+        })
+    );
+    assert_eq!(j["unknown_sections"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        to_json(&LdfModel::default())["composition"],
+        serde_json::Value::Null
+    );
 }
 
 #[test]

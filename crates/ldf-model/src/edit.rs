@@ -8,8 +8,8 @@
 
 use crate::arena::ArenaId;
 use crate::{
-    ConfigurableFrame, EncodingEntry, EncodingId, EncodingType, Frame, FrameId, FrameKind,
-    FrameSignal, InitValue, LdfModel, Node, NodeAttrs, NodeId, NodeRole, ProductId, Ref,
+    Composition, ConfigurableFrame, EncodingEntry, EncodingId, EncodingType, Frame, FrameId,
+    FrameKind, FrameSignal, InitValue, LdfModel, Node, NodeAttrs, NodeId, NodeRole, ProductId, Ref,
     ScheduleId, ScheduleTable, Signal, SignalId, SignalKind, Slot, SlotEntry,
 };
 use std::fmt;
@@ -171,6 +171,8 @@ pub enum EditOp {
     SetSpeed(u32),
     /// `Channel_name`.
     SetChannelName(Option<String>),
+    /// 노드 구성(`composite`/`Node_composition`)을 통째로 바꾼다. `None`이면 지운다.
+    SetComposition(Option<Composition>),
     /// 마스터의 타임베이스·지터(ms).
     SetMasterTiming {
         /// 마스터 이름.
@@ -669,7 +671,134 @@ fn remove_frame(m: &mut LdfModel, id: FrameId) {
     visit_frame_refs(m, &mut shift(id.index()));
 }
 
+/// 노드 구성에서 노드 이름을 바꾼다(논리 노드와, 같은 이름의 합성 노드).
+fn rename_in_composition(m: &mut LdfModel, from: &str, to: &str) {
+    let Some(c) = &mut m.composition else { return };
+    for cfg in &mut c.configurations {
+        for node in &mut cfg.composites {
+            if node.name == from {
+                node.name = to.to_owned();
+            }
+            for l in &mut node.logical {
+                if l == from {
+                    *l = to.to_owned();
+                }
+            }
+        }
+    }
+}
+
+/// 노드 구성에서 논리 노드를 지운다. 비게 된 합성 노드·구성과, 구성이 하나도 안 남은 노드 구성 전체도 함께 지운다.
+fn drop_logical_node(m: &mut LdfModel, name: &str) {
+    let Some(c) = &mut m.composition else { return };
+    for cfg in &mut c.configurations {
+        for node in &mut cfg.composites {
+            node.logical.retain(|l| l != name);
+        }
+        cfg.composites.retain(|n| !n.logical.is_empty());
+    }
+    c.configurations.retain(|cfg| !cfg.composites.is_empty());
+    if c.configurations.is_empty() {
+        m.composition = None;
+        sync_composition_order(m);
+    }
+}
+
+/// `section_order`에 노드 구성 섹션 이름이 모델과 맞게 한 번만 있게 한다.
+/// 이미 있던 자리를 지키고, 새로 생겼으면 `Nodes` 바로 뒤에 둔다.
+fn sync_composition_order(m: &mut LdfModel) {
+    const NAMES: [&str; 2] = ["composite", "Node_composition"];
+    let first = m
+        .section_order
+        .iter()
+        .position(|n| NAMES.contains(&n.as_str()));
+    let raw_names: Vec<String> = m
+        .unknown_sections
+        .iter()
+        .filter(|s| NAMES.contains(&s.name.as_str()))
+        .map(|s| s.name.clone())
+        .collect();
+    m.section_order.retain(|n| !NAMES.contains(&n.as_str()));
+    let mut wanted: Vec<String> = raw_names;
+    if let Some(c) = &m.composition {
+        wanted.insert(0, c.keyword.clone());
+    }
+    wanted.dedup();
+    if wanted.is_empty() {
+        return;
+    }
+    let at = first
+        .map(|i| i.min(m.section_order.len()))
+        .or_else(|| {
+            m.section_order
+                .iter()
+                .position(|n| n == "Nodes")
+                .map(|i| i + 1)
+        })
+        .unwrap_or(m.section_order.len());
+    for (k, n) in wanted.into_iter().enumerate() {
+        m.section_order.insert(at + k, n);
+    }
+}
+
+/// 노드 구성을 검사해 모델에 넣는다. 이름은 식별자여야 하고 구성 안에서 겹치지 않아야 한다.
+fn set_composition(m: &mut LdfModel, c: Option<&Composition>) -> Result {
+    let Some(c) = c else {
+        m.composition = None;
+        sync_composition_order(m);
+        return Ok(());
+    };
+    if !matches!(c.keyword.as_str(), "composite" | "Node_composition") {
+        return invalid(format!(
+            "노드 구성의 섹션 이름은 composite 또는 Node_composition이어야 한다: `{}`",
+            c.keyword
+        ));
+    }
+    if c.configurations.is_empty() {
+        return invalid("노드 구성에 구성(configuration)이 하나는 있어야 한다");
+    }
+    let mut config_names = std::collections::BTreeSet::new();
+    for cfg in &c.configurations {
+        check_name(&cfg.name)?;
+        if !config_names.insert(cfg.name.as_str()) {
+            return invalid(format!("구성 `{}`이(가) 두 번 나온다", cfg.name));
+        }
+        if cfg.composites.is_empty() {
+            return invalid(format!(
+                "구성 `{}`에 합성 노드가 하나는 있어야 한다",
+                cfg.name
+            ));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for node in &cfg.composites {
+            check_name(&node.name)?;
+            if node.logical.is_empty() {
+                return invalid(format!(
+                    "합성 노드 `{}`에 논리 노드가 하나는 있어야 한다",
+                    node.name
+                ));
+            }
+            for n in std::iter::once(&node.name).chain(&node.logical) {
+                check_name(n)?;
+                if !seen.insert(&n[..]) {
+                    return invalid(format!(
+                        "구성 `{}`에서 이름 `{n}`이(가) 두 번 나온다",
+                        cfg.name
+                    ));
+                }
+            }
+        }
+    }
+    m.composition = Some(Composition {
+        span: None,
+        ..c.clone()
+    });
+    sync_composition_order(m);
+    Ok(())
+}
+
 fn remove_node(m: &mut LdfModel, id: NodeId) {
+    let removed_name = m.nodes.get(id).map(|n| n.name.clone());
     // 그 노드가 발행하는 것들을 먼저 지운다(지우면 인덱스가 당겨지므로 이름으로 다시 찾는다)
     let frames: Vec<String> = m
         .frames
@@ -710,6 +839,9 @@ fn remove_node(m: &mut LdfModel, id: NodeId) {
         });
     }
     m.nodes.remove(id);
+    if let Some(name) = removed_name {
+        drop_logical_node(m, &name);
+    }
     visit_node_refs(m, &mut shift(id.index()));
 }
 
@@ -856,6 +988,7 @@ impl EditOp {
             EditOp::Batch(_) => "batch",
             EditOp::SetSpeed(_) => "set_speed",
             EditOp::SetChannelName(_) => "set_channel_name",
+            EditOp::SetComposition(_) => "set_composition",
             EditOp::SetMasterTiming { .. } => "set_master_timing",
             EditOp::AddSlave(_) => "add_slave",
             EditOp::RenameNode { .. } => "rename_node",
@@ -900,6 +1033,7 @@ impl EditOp {
             }
             EditOp::SetSpeed(bps) => m.header.speed_bps = Some(*bps),
             EditOp::SetChannelName(name) => m.header.channel_name = name.clone(),
+            EditOp::SetComposition(c) => set_composition(m, c.as_ref())?,
             EditOp::SetMasterTiming {
                 node,
                 timebase_ms,
@@ -932,6 +1066,7 @@ impl EditOp {
                 if let Some(n) = m.nodes.get_mut(id) {
                     n.name = to.clone();
                 }
+                rename_in_composition(m, from, to);
             }
             EditOp::DeleteNode(name) => {
                 let id = node_by_name(m, name)?;

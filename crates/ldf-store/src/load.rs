@@ -111,7 +111,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         .query_row(
             "SELECT id, project_id, parent_id, label, source_name, created_at, protocol_ver, \
              language_ver, speed_bps, encoding, has_marker, ldf_file_revision, big_endian, \
-             channel, source_text, section_order, lower_notes, leading_comment \
+             channel, source_text, section_order, lower_notes, leading_comment, composition_json \
              FROM ldf_revision WHERE id = ?1",
             params![id],
             |r| {
@@ -125,6 +125,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
                     r.get::<_, String>(15)?,
                     r.get::<_, String>(16)?,
                     r.get::<_, String>(17)?,
+                    r.get::<_, Option<String>>(18)?,
                 ))
             },
         )
@@ -139,6 +140,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         order,
         notes,
         leading_comment,
+        composition,
     )) = head
     else {
         return Err(StoreError::NotFound(format!("리비전 {id}")));
@@ -156,6 +158,10 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
     model.header.leading_comment = leading_comment;
     model.section_order = serde_json::from_str(&order)?;
     model.notes = serde_json::from_str(&notes)?;
+    model.composition = composition
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
 
     load_nodes(conn, id, &mut model)?;
     load_encodings(conn, id, &mut model)?;

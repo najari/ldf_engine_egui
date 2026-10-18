@@ -28,6 +28,37 @@
     "encodings": { "type": "array", "items": { "$ref": "#/$defs/encoding" } },
     "schedules": { "type": "array", "items": { "$ref": "#/$defs/schedule" } },
     "node_attributes": { "type": "array", "items": { "$ref": "#/$defs/node_attributes" } },
+    "composition": {
+      "description": "노드 구성(composite/Node_composition). 없으면 null. 논리 노드는 노드 이름이다.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["keyword", "configurations"],
+          "properties": {
+            "keyword": { "enum": ["composite", "Node_composition"] },
+            "configurations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "composites"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "composites": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["name", "logical"],
+                      "properties": { "name": { "type": "string" }, "logical": { "$ref": "#/$defs/names" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "unknown_sections": {
       "type": "array",
       "items": {

@@ -24,6 +24,7 @@ LIN_protocol_version = \"2.1\";\r\n\
 LIN_language_version = \"2.1\";\r\n\
 LIN_speed = 19.2 kbps;\r\n\
 Nodes { Master: M, 5 ms, 0.1 ms; Slaves: A, B; }\r\n\
+composite { configuration Cfg { Phys { A, B; } } }\r\n\
 Signals {\r\n\
   Cmd: 8, 0, M, A, B;\r\n\
   Pos: 16, 0, A, M;\r\n\
@@ -66,7 +67,7 @@ struct Seed {
 
 fn seeds() -> impl Strategy<Value = Vec<Seed>> {
     prop::collection::vec(
-        (0u8..30, any::<u32>(), any::<u32>(), any::<u32>()).prop_map(|(kind, a, b, c)| Seed {
+        (0u8..31, any::<u32>(), any::<u32>(), any::<u32>()).prop_map(|(kind, a, b, c)| Seed {
             kind,
             a,
             b,
@@ -276,6 +277,33 @@ fn interpret(m: &LdfModel, s: &Seed) -> Option<EditOp> {
             EditOp::AddSlave(m.unique_name("Slave")),
             EditOp::DeleteSignal(pick(&signals, a)?),
         ]),
+        30 => {
+            // 노드 구성을 새로 정한다: 합성 노드 하나에 슬레이브 한두 개
+            let first = pick(&slaves, a)?;
+            let mut logical = vec![first.clone()];
+            if let Some(second) = pick(&slaves, b)
+                && second != first
+            {
+                logical.push(second);
+            }
+            EditOp::SetComposition(Some(ldf_model::Composition {
+                keyword: if c % 2 == 0 {
+                    "composite"
+                } else {
+                    "Node_composition"
+                }
+                .to_owned(),
+                configurations: vec![ldf_model::Configuration {
+                    name: "Cfg".to_owned(),
+                    composites: vec![ldf_model::CompositeNode {
+                        name: m.unique_name("Comp"),
+                        logical,
+                    }],
+                }],
+                colon_form: c % 3 == 0,
+                span: None,
+            }))
+        }
         _ => EditOp::DeleteNode(pick(&slaves, b)?),
     })
 }

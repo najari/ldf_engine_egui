@@ -246,3 +246,60 @@ fn broken_inputs_never_panic_the_writer() {
         let _ = write(&m, &WriteOptions::default());
     }
 }
+
+#[test]
+fn node_composition_round_trips_in_both_forms_and_keeps_its_place() {
+    for (kw, body) in [
+        (
+            "composite",
+            "configuration c1 { Phys { A, B; } Other { C; } }",
+        ),
+        (
+            "Node_composition",
+            "configuration c1 { Phys: A, B; Other: C; }",
+        ),
+    ] {
+        let src = format!(
+            "LIN_description_file;\nLIN_protocol_version = \"2.1\";\nNodes {{ Master: M, 1 ms, 0 ms; Slaves: A, B, C; }}\n{kw} {{ {body} }}\nSignals {{ S: 8, 0, M, A; }}\n"
+        );
+        let m = load(&src).model;
+        assert!(m.composition.is_some(), "{kw}");
+        let w = write(&m, &WriteOptions::default()).text;
+        assert!(semantically_equal(&m, &load(&w).model), "{kw}\n{w}");
+        // 순서: Nodes 다음, Signals 앞
+        let pos = |s: &str| w.find(s).unwrap_or(usize::MAX);
+        assert!(pos("Nodes") < pos(kw) && pos(kw) < pos("Signals"), "{w}");
+        // 같은 모양으로 다시 쓴다
+        assert_eq!(w.contains("Phys:"), kw == "Node_composition", "{w}");
+    }
+}
+
+#[test]
+fn node_composition_is_dropped_for_2_0_but_composite_is_kept() {
+    let src = |kw: &str| {
+        format!(
+            "LIN_description_file;\nLIN_protocol_version = \"2.1\";\nNodes {{ Master: M, 1 ms, 0 ms; Slaves: A; }}\n{kw} {{ configuration c {{ P {{ A; }} }} }}\n"
+        )
+    };
+    let w = write(
+        &load(&src("Node_composition")).model,
+        &WriteOptions {
+            target: Target::V2_0,
+            ..Default::default()
+        },
+    );
+    assert!(!w.text.contains("Node_composition"));
+    assert!(
+        w.warnings.iter().any(|x| x.contains("Node_composition")),
+        "{:?}",
+        w.warnings
+    );
+    let w = write(
+        &load(&src("composite")).model,
+        &WriteOptions {
+            target: Target::V2_0,
+            ..Default::default()
+        },
+    );
+    assert!(w.text.contains("composite"));
+}

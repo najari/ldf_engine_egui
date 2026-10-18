@@ -149,8 +149,16 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
         }
     }
 
-    for &(name, stmt, _) in &sections {
+    for &(name, stmt, block) in &sections {
         if CANONICAL.contains(&name) {
+            continue;
+        }
+        // 노드 구성은 모델로 읽는다. 첫 번째만, 모양이 맞을 때만(아니면 원문으로 보관해 잃지 않는다)
+        if matches!(name, "composite" | "Node_composition")
+            && lw.model.composition.is_none()
+            && let Some(c) = composition(src, name, stmt, block)
+        {
+            lw.model.composition = Some(c);
             continue;
         }
         if !KEPT_RAW.contains(&name) {
@@ -169,6 +177,95 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
 
     lw.resolve();
     (lw.model, lw.diags)
+}
+
+/// 노드 구성 섹션을 읽는다(LIN 2.2A §9.2.2.3). 모양이 다르면 `None`.
+///
+/// ```text
+/// composite { configuration <이름> { <합성 노드> { <논리 노드>, …; } … } … }
+/// ```
+/// 합성 노드를 `이름: 논리, …;`로 쓴 형식과, 마지막 `;`를 빼먹은 형식도 받는다.
+fn composition(src: &str, keyword: &str, stmt: &Stmt, block: &Block) -> Option<Composition> {
+    fn ident_text<'a>(src: &'a str, e: &Elem) -> Option<&'a str> {
+        match e {
+            Elem::Token(t) if t.kind == TokenKind::Ident => Some(t.span.text(src)),
+            _ => None,
+        }
+    }
+    /// 식별자와 `,`·`;`만 있는 조각에서 식별자들을 모은다.
+    fn names(src: &str, elems: &[Elem], out: &mut Vec<String>) -> Option<()> {
+        for e in elems {
+            match e {
+                Elem::Token(t) if t.kind == TokenKind::Ident => {
+                    out.push(t.span.text(src).to_owned());
+                }
+                Elem::Token(Token {
+                    kind: TokenKind::Punct(',' | ';'),
+                    ..
+                }) => {}
+                _ => return None,
+            }
+        }
+        Some(())
+    }
+    let mut colon_form = false;
+    let mut configurations = Vec::new();
+    for cfg in &block.stmts {
+        let [kw, name, Elem::Block(body)] = cfg.elems.as_slice() else {
+            return None;
+        };
+        if ident_text(src, kw)? != "configuration" {
+            return None;
+        }
+        let cfg_name = ident_text(src, name)?.to_owned();
+        let mut composites = Vec::new();
+        for comp in &body.stmts {
+            let (first, rest) = comp.elems.split_first()?;
+            let comp_name = ident_text(src, first)?.to_owned();
+            let mut logical = Vec::new();
+            match rest {
+                [Elem::Block(b)] => {
+                    for s in &b.stmts {
+                        names(src, &s.elems, &mut logical)?;
+                    }
+                }
+                [
+                    Elem::Token(Token {
+                        kind: TokenKind::Punct(':'),
+                        ..
+                    }),
+                    tail @ ..,
+                ] => {
+                    colon_form = true;
+                    names(src, tail, &mut logical)?;
+                }
+                _ => return None,
+            }
+            if logical.is_empty() {
+                return None;
+            }
+            composites.push(CompositeNode {
+                name: comp_name,
+                logical,
+            });
+        }
+        if composites.is_empty() {
+            return None;
+        }
+        configurations.push(Configuration {
+            name: cfg_name,
+            composites,
+        });
+    }
+    if configurations.is_empty() {
+        return None;
+    }
+    Some(Composition {
+        keyword: keyword.to_owned(),
+        configurations,
+        colon_form,
+        span: Some(stmt.span),
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -415,12 +512,26 @@ impl<'s> Lowerer<'s> {
             "LDF_file_revision" => self.model.header.ldf_file_revision = self.header_text(e),
             "LIN_speed" => {
                 let unit = match e.rest {
-                    [_, Elem::Token(u)] if u.kind == TokenKind::Ident => u.span.text(src),
-                    _ => "kbps",
+                    [_, Elem::Token(u)] if u.kind == TokenKind::Ident => Some(u.span.text(src)),
+                    _ => None,
                 };
+                // 명세는 `kbps`만 쓴다(§9.2.1.3). 다른 단위도 값은 읽되 알린다
+                match unit {
+                    Some("kbps") => {}
+                    Some(u @ ("bps" | "mbps")) => self.diags.push(Diagnostic::warning(
+                        codes::SPEED_UNIT,
+                        e.span,
+                        format!("LIN_speed: 단위 `{u}`는 명세에 없다(`kbps`만 쓴다)"),
+                    )),
+                    _ => self.diags.push(Diagnostic::warning(
+                        codes::SPEED_UNIT,
+                        e.span,
+                        "LIN_speed: 단위가 없거나 알 수 없어 kbps로 읽었다",
+                    )),
+                }
                 let factor = match unit {
-                    "bps" => 1.0,
-                    "mbps" => 1_000_000.0,
+                    Some("bps") => 1.0,
+                    Some("mbps") => 1_000_000.0,
                     _ => 1000.0,
                 };
                 match number(src, e.rest) {

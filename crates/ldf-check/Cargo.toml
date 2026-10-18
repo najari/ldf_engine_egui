@@ -8,7 +8,6 @@ publish.workspace = true
 
 [dependencies]
 ldf-model.workspace = true
-ldf-syntax.workspace = true
 
 [lints]
 workspace = true

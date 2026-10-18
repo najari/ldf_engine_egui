@@ -551,3 +551,72 @@ fn moving_a_slot_in_place_does_nothing() {
         .expect("table");
     assert!(matches!(t.slots[2].entry, SlotEntry::Frame(_)));
 }
+
+#[test]
+fn composition_dialog_starts_empty_and_creates_a_composition() {
+    let m = model();
+    let mut ui = CompositionUi::from_model(&m);
+    assert_eq!(ui.text, "");
+    // 비운 채로 확인하면 아무것도 바뀌지 않는다
+    assert_eq!(apply(&m, &ui.to_op().expect("op")), m);
+    ui.text = "configuration cfg\n  Phys: A, B\n".to_owned();
+    let after = apply(&m, &ui.to_op().expect("op"));
+    let c = after.composition.as_ref().expect("composition");
+    assert_eq!(c.keyword, "composite");
+    assert_eq!(c.configurations[0].composites[0].logical, ["A", "B"]);
+    // 다시 열면 같은 글이 나오고, 확인해도 바뀌지 않는다
+    let again = CompositionUi::from_model(&after);
+    assert_eq!(again.text, "configuration cfg\n  Phys: A, B\n");
+    assert_eq!(apply(&after, &again.to_op().expect("op")), after);
+    // 지우기
+    let cleared = CompositionUi {
+        text: String::new(),
+        ..again
+    };
+    assert!(
+        apply(&after, &cleared.to_op().expect("op"))
+            .composition
+            .is_none()
+    );
+}
+
+#[test]
+fn composition_text_errors_name_the_line() {
+    let parse = |s: &str| parse_composition(s, "composite", false);
+    assert_eq!(parse("").expect("empty"), None);
+    assert_eq!(parse("  \n\n").expect("blank"), None);
+    for (src, line) in [
+        ("configuration\n", 1),
+        ("P: A\n", 1),
+        ("configuration c\n  P:\n", 2),
+        ("configuration c\n  P A\n", 2),
+        ("\nbogus\n", 2),
+    ] {
+        let e = parse(src).expect_err(src);
+        assert!(e.starts_with(&format!("{line}번째 줄")), "{src:?}: {e}");
+    }
+    // 모델 규칙(이름·중복)은 연산이 따진다
+    let m = model();
+    let ui = CompositionUi {
+        text: "configuration c\n  P: A, A\n".to_owned(),
+        ..CompositionUi::from_model(&m)
+    };
+    let pv = preview(&m, &ui.to_op().expect("op"));
+    assert!(pv.error.is_some());
+}
+
+#[test]
+fn composition_preview_reports_unknown_logical_nodes() {
+    let m = model();
+    let ui = CompositionUi {
+        text: "configuration c\n  P: A, Ghost\n".to_owned(),
+        ..CompositionUi::from_model(&m)
+    };
+    let pv = preview(&m, &ui.to_op().expect("op"));
+    assert!(pv.error.is_none());
+    assert!(
+        pv.new_findings.iter().any(|d| d.code == 109),
+        "{:?}",
+        pv.new_findings
+    );
+}

@@ -222,6 +222,15 @@ pub fn to_json(m: &LdfModel) -> Value {
         "encodings": encodings,
         "schedules": schedules,
         "node_attributes": node_attributes,
+        "composition": m.composition.as_ref().map(|c| json!({
+            "keyword": c.keyword,
+            "configurations": c.configurations.iter().map(|cfg| json!({
+                "name": cfg.name,
+                "composites": cfg.composites.iter()
+                    .map(|n| json!({ "name": n.name, "logical": n.logical }))
+                    .collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        })),
         "unknown_sections": m.unknown_sections.iter()
             .map(|s| json!({ "name": s.name, "text": s.text })).collect::<Vec<_>>(),
     })

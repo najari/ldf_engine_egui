@@ -7,8 +7,8 @@ use crate::i18n::{t, tr};
 use crate::ui::bits;
 use crate::view::SelKey;
 use crate::view::edit::{
-    EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi, Preview, ScheduleUi, SignalUi,
-    SlotKind, SlotUi, deletion_effects, frame_names, node_names, preview,
+    CompositionUi, EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi, Preview, ScheduleUi,
+    SignalUi, SlotKind, SlotUi, deletion_effects, frame_names, node_names, preview,
 };
 use egui::{ComboBox, Context, DragValue, TextEdit, Ui};
 use ldf_engine::{EditOp, ModelSnapshot};
@@ -26,6 +26,8 @@ pub enum Dialog {
     Node(NodeUi),
     /// 스케줄 테이블 편집·생성.
     Schedule(ScheduleUi),
+    /// 노드 구성(composite) 편집.
+    Composition(CompositionUi),
     /// 삭제 확인.
     Delete(DeleteUi),
 }
@@ -233,6 +235,10 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut EditState) -> Outcome 
             Dialog::Schedule(d) => (
                 schedule(ctx, model, d, st, &mut outcome),
                 SelKey::Schedule(d.name.clone()),
+            ),
+            Dialog::Composition(d) => (
+                composition(ctx, model, d, st, &mut outcome),
+                SelKey::Cluster,
             ),
             Dialog::Delete(d) => (delete(ctx, d, &mut outcome), SelKey::Cluster),
         };
@@ -762,6 +768,59 @@ fn node(
             }
         }
         let problems: Vec<String> = op.as_ref().err().cloned().into_iter().collect();
+        footer(
+            ui,
+            "OK",
+            problems.is_empty() && pv.is_some_and(|p| p.error.is_none()),
+            &problems,
+            pv.and_then(|p| p.error.as_deref()),
+            pv.map_or(&[][..], |p| p.new_findings.as_slice()),
+        )
+    });
+    if matches!(done, Done::Ok)
+        && let Ok(op) = op
+    {
+        *out = Outcome::Apply {
+            op: Box::new(op),
+            select: None,
+        };
+    }
+    done
+}
+
+// ---- 노드 구성 ----------------------------------------------------------------------------------
+
+fn composition(
+    ctx: &Context,
+    model: &LdfModel,
+    d: &mut CompositionUi,
+    st: &mut EditState,
+    out: &mut Outcome,
+) -> Done {
+    let key = format!("{d:?}");
+    let c = analyze(&mut st.cache, key, model, || d.to_op());
+    let (op, pv) = (c.op.clone(), c.preview.as_ref());
+    let slaves = node_names(model, true);
+
+    let done = window(ctx, t("노드 구성"), |ui| {
+        ui.label(t(
+            "구성마다 `configuration 이름` 줄을 쓰고 그 아래에 `합성노드: 논리노드, 논리노드` 줄을 쓴다. 비우면 노드 구성을 지운다.",
+        ));
+        if !slaves.is_empty() {
+            ui.weak(tf!("사용할 수 있는 슬레이브: {}", slaves.join(", ")));
+        }
+        ui.add(
+            TextEdit::multiline(&mut d.text)
+                .font(egui::TextStyle::Monospace)
+                .desired_rows(10)
+                .desired_width(f32::INFINITY),
+        );
+        let problems: Vec<String> = op
+            .as_ref()
+            .err()
+            .map(|e| tr(e).into_owned())
+            .into_iter()
+            .collect();
         footer(
             ui,
             "OK",

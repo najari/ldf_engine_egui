@@ -371,8 +371,8 @@ fn unknown_and_unmodelled_sections_are_kept_raw() {
         .iter()
         .map(|s| s.name.as_str())
         .collect();
-    assert_eq!(names, ["Node_composition", "Vendor_extension"]);
-    // Node_composition은 실제 섹션이므로 경고하지 않고, 모르는 섹션만 경고한다
+    // Node_composition은 모델로 읽으므로 원문 보관 목록에 없다
+    assert_eq!(names, ["Vendor_extension"]);
     let warned: Vec<_> = l
         .diagnostics
         .iter()
@@ -380,7 +380,67 @@ fn unknown_and_unmodelled_sections_are_kept_raw() {
         .collect();
     assert_eq!(warned.len(), 1);
     assert!(warned[0].message.contains("Vendor_extension"));
-    assert!(l.model.unknown_sections[1].text.contains("x = 1"));
+    assert!(l.model.unknown_sections[0].text.contains("x = 1"));
+}
+
+#[test]
+fn composition_is_modelled_in_both_forms() {
+    // 명세 §9.2.2.3 형식
+    let l = load(
+        "composite { configuration c1 { Phys { A, B; } Other { C; } } configuration c2 { Phys { A; } } }",
+    );
+    assert!(l.diagnostics.is_empty(), "{:?}", l.diagnostics);
+    let c = l.model.composition.expect("composition");
+    assert_eq!(c.keyword, "composite");
+    assert!(!c.colon_form);
+    assert_eq!(c.configurations.len(), 2);
+    assert_eq!(
+        c.configurations[0].composites,
+        vec![
+            CompositeNode {
+                name: "Phys".into(),
+                logical: vec!["A".into(), "B".into()]
+            },
+            CompositeNode {
+                name: "Other".into(),
+                logical: vec!["C".into()]
+            },
+        ]
+    );
+    // `이름: 논리, …;` 형식, 마지막 `;`가 없는 형식
+    let l = load("Node_composition { configuration c { Phys: A, B; } }");
+    let c = l.model.composition.expect("composition");
+    assert_eq!(
+        (c.keyword.as_str(), c.colon_form),
+        ("Node_composition", true)
+    );
+    let l = load("composite { configuration c { RSM { logicalNode } } }");
+    assert_eq!(
+        l.model.composition.expect("composition").configurations[0].composites[0].logical,
+        ["logicalNode"]
+    );
+}
+
+#[test]
+fn composition_with_an_unexpected_shape_stays_raw() {
+    for src in [
+        "composite { }",
+        "composite { configuration c { } }",
+        "composite { configuration c { P { } } }",
+        "composite { configuration { P { A; } } }",
+        "composite { other c { P { A; } } }",
+        "composite { configuration c { P { A = 1; } } }",
+    ] {
+        let l = load(src);
+        assert!(l.model.composition.is_none(), "{src}");
+        assert_eq!(l.model.unknown_sections.len(), 1, "{src}");
+    }
+    // 두 번째 구성 섹션은 원문으로 남는다
+    let l = load(
+        "composite { configuration c { P { A; } } }\ncomposite { configuration d { Q { B; } } }",
+    );
+    assert!(l.model.composition.is_some());
+    assert_eq!(l.model.unknown_sections.len(), 1);
 }
 
 #[test]
@@ -470,13 +530,20 @@ fn event_triggered_frame_without_collision_table() {
 
 #[test]
 fn speed_units() {
+    // 값은 읽지만 명세에 없는 단위는 경고한다(LIN 2.2A §9.2.1.3)
+    let l = load("LIN_speed = 9600 bps;");
+    assert_eq!(l.model.header.speed_bps, Some(9600));
+    assert_eq!(l.diagnostics.len(), 1, "{:?}", l.diagnostics);
+    assert_eq!(l.diagnostics[0].code, 9110);
+    let l = load("LIN_speed = 10.4 kbps;");
+    assert_eq!(l.model.header.speed_bps, Some(10_400));
+    assert!(l.diagnostics.is_empty());
+    let l = load("LIN_speed = 19.2;");
+    assert_eq!(l.model.header.speed_bps, Some(19_200));
+    assert_eq!(l.diagnostics.len(), 1);
     assert_eq!(
-        load("LIN_speed = 9600 bps;").model.header.speed_bps,
-        Some(9600)
-    );
-    assert_eq!(
-        load("LIN_speed = 10.4 kbps;").model.header.speed_bps,
-        Some(10_400)
+        load("LIN_speed = 1 mbps;").model.header.speed_bps,
+        Some(1_000_000)
     );
 }
 

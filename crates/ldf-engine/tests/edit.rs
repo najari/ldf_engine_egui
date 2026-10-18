@@ -5,7 +5,7 @@
 use ldf_engine::{
     AttrsDraft, EditOp, FrameDraft, FrameDraftKind, ModelSnapshot, Session, SignalDraft, SlotDraft,
 };
-use ldf_model::{InitValue, semantically_equal};
+use ldf_model::{CompositeNode, Composition, Configuration, InitValue, semantically_equal};
 use std::sync::Arc;
 
 const SAMPLE: &str = "// 샘플 클러스터\r\n\
@@ -170,7 +170,58 @@ fn every_op() -> Vec<EditOp> {
                 ..AttrsDraft::default()
             },
         },
+        EditOp::SetComposition(Some(composition())),
     ]
+}
+
+fn composition() -> Composition {
+    Composition {
+        keyword: "composite".into(),
+        configurations: vec![Configuration {
+            name: "Cfg".into(),
+            composites: vec![CompositeNode {
+                name: "Phys".into(),
+                logical: vec!["A".into()],
+            }],
+        }],
+        colon_form: false,
+        span: None,
+    }
+}
+
+#[test]
+fn a_composition_edit_shows_up_in_the_text_and_comes_back_on_undo() {
+    let (mut s, base) = open();
+    let after = s
+        .edit(&base, &EditOp::SetComposition(Some(composition())))
+        .expect("edit");
+    assert!(after.source.contains("composite"), "{}", after.source);
+    assert!(
+        after.source.contains("configuration Cfg"),
+        "{}",
+        after.source
+    );
+    // 다시 읽은 모델은 원문 위치(span)만 더 갖는다
+    let configs = |s: &ModelSnapshot| {
+        s.model
+            .composition
+            .as_ref()
+            .map(|c| c.configurations.clone())
+    };
+    assert_eq!(configs(&after), Some(composition().configurations));
+    // 노드 이름을 바꾸면 노드 구성의 논리 노드도 따라온다
+    let renamed = s
+        .edit(
+            &after,
+            &EditOp::RenameNode {
+                from: "A".into(),
+                to: "A2".into(),
+            },
+        )
+        .expect("rename");
+    assert!(renamed.source.contains("A2;"), "{}", renamed.source);
+    let back = s.undo(&renamed).expect("undo");
+    assert_eq!(configs(&back), Some(composition().configurations));
 }
 
 #[test]

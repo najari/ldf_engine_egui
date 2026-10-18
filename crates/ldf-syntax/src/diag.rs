@@ -47,6 +47,8 @@ pub mod codes {
     pub const DUPLICATE_NAME: u16 = 9108;
     /// `Signal_representation`이 없는 시그널을 가리켜 항목을 버렸다.
     pub const UNRESOLVED_REPRESENTATION: u16 = 9109;
+    /// `LIN_speed`의 단위가 명세(`kbps`)와 다르다.
+    pub const SPEED_UNIT: u16 = 9110;
 }
 
 /// 진단 하나.

@@ -21,7 +21,7 @@ fn ignored_section(name: &str, p: Proto) -> bool {
     match name {
         "Signal_groups" => p != Proto::V1_3,
         "Diagnostic_addresses" => p != Proto::Iso,
-        "composite" => p != Proto::V2_0,
+        "composite" => !matches!(p, Proto::V2_0 | Proto::V2_1 | Proto::V2_2),
         "dynamic_frames" | "Dynamic_frames" => p == Proto::V1_3,
         _ => false,
     }
@@ -57,12 +57,11 @@ impl Rule for R0021 {
         }
 
         if !matches!(file, Proto::Unknown | Proto::Oem) {
-            for s in &m.unknown_sections {
-                if ignored_section(&s.name, file) {
-                    warn(
-                        s.span,
-                        format!("`{}` 섹션은 이 LIN 버전에서 무시된다", s.name),
-                    );
+            let composition = m.composition.iter().map(|c| (c.keyword.as_str(), c.span));
+            let raw = m.unknown_sections.iter().map(|s| (s.name.as_str(), s.span));
+            for (name, span) in composition.chain(raw) {
+                if ignored_section(name, file) {
+                    warn(span, format!("`{name}` 섹션은 이 LIN 버전에서 무시된다"));
                 }
             }
         }

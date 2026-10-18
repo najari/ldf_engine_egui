@@ -1,8 +1,8 @@
 //! 모델 -> LDF 텍스트. 섹션 하나씩 문자열 블록으로 만든다.
 
 use ldf_model::{
-    EncodingEntry, EncodingId, FrameId, FrameKind, FrameSignal, InitValue, LdfModel, NodeId,
-    NodeRole, Ref, ScheduleId, SignalId, SignalKind, SlotEntry,
+    Composition, EncodingEntry, EncodingId, FrameId, FrameKind, FrameSignal, InitValue, LdfModel,
+    NodeId, NodeRole, Ref, ScheduleId, SignalId, SignalKind, SlotEntry,
 };
 
 fn name_of<'a, T: Copy>(r: &'a Ref<T>, lookup: impl Fn(T) -> Option<&'a str>) -> &'a str {
@@ -376,6 +376,25 @@ pub(crate) fn schedule_tables(m: &LdfModel) -> Option<String> {
 
 fn join_nums(v: &[u32]) -> String {
     v.iter().map(|d| hex(*d)).collect::<Vec<_>>().join(", ")
+}
+
+/// 노드 구성 섹션. 끝에 줄바꿈은 붙이지 않는다.
+pub(crate) fn composition(c: &Composition) -> String {
+    let mut s = format!("{} {{\n", c.keyword);
+    for cfg in &c.configurations {
+        s.push_str(&format!("  configuration {} {{\n", cfg.name));
+        for node in &cfg.composites {
+            let list = node.logical.join(", ");
+            if c.colon_form {
+                s.push_str(&format!("    {}: {list};\n", node.name));
+            } else {
+                s.push_str(&format!("    {} {{ {list}; }}\n", node.name));
+            }
+        }
+        s.push_str("  }\n");
+    }
+    s.push_str("}\n");
+    s.trim_end().to_owned()
 }
 
 pub(crate) fn encodings(m: &LdfModel) -> Option<String> {

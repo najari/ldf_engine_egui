@@ -6,9 +6,9 @@
 use crate::i18n::t;
 use crate::view::Selection;
 use ldf_model::{
-    AttrsDraft, Diagnostic, EditOp, EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind,
-    InitValue, LdfModel, NodeId, NodeRole, ProductId, Ref, SignalDraft, SignalId, SignalKind,
-    SlotDraft, SlotEntry,
+    AttrsDraft, CompositeNode, Composition, Configuration, Diagnostic, EditOp, EncodingEntry,
+    FrameDraft, FrameDraftKind, FrameId, FrameKind, InitValue, LdfModel, NodeId, NodeRole,
+    ProductId, Ref, SignalDraft, SignalId, SignalKind, SlotDraft, SlotEntry,
 };
 use std::collections::BTreeMap;
 
@@ -1162,6 +1162,126 @@ impl EncodingUi {
     }
 }
 
+// ---- 노드 구성 ----------------------------------------------------------------------------------
+
+/// 노드 구성 대화상자의 초안. 구성 전체를 한 덩어리 글로 고친다:
+///
+/// ```text
+/// configuration cfg1
+///   Phys: LSM, RSM
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompositionUi {
+    /// 고치는 글.
+    pub text: String,
+    keyword: String,
+    colon_form: bool,
+}
+
+impl CompositionUi {
+    /// 지금 모델의 노드 구성으로 초안을 만든다. 없으면 빈 글이고, 새로 만들 때의 섹션 이름은 버전을 따른다.
+    pub fn from_model(m: &LdfModel) -> Self {
+        match &m.composition {
+            Some(c) => Self {
+                text: composition_text(c),
+                keyword: c.keyword.clone(),
+                colon_form: c.colon_form,
+            },
+            None => Self {
+                text: String::new(),
+                keyword: if m.header.protocol_version.as_deref() == Some("ISO17987:2015") {
+                    "Node_composition"
+                } else {
+                    "composite"
+                }
+                .to_owned(),
+                colon_form: false,
+            },
+        }
+    }
+
+    /// 보낼 연산. 글이 비어 있으면 노드 구성을 지운다.
+    pub fn to_op(&self) -> Result<EditOp, String> {
+        Ok(EditOp::SetComposition(parse_composition(
+            &self.text,
+            &self.keyword,
+            self.colon_form,
+        )?))
+    }
+}
+
+/// 노드 구성을 글로 쓴다.
+pub fn composition_text(c: &Composition) -> String {
+    let mut s = String::new();
+    for cfg in &c.configurations {
+        s.push_str(&format!("configuration {}\n", cfg.name));
+        for n in &cfg.composites {
+            s.push_str(&format!("  {}: {}\n", n.name, n.logical.join(", ")));
+        }
+    }
+    s
+}
+
+/// 글을 노드 구성으로 읽는다. 빈 글이면 `None`. 이름이 식별자인지 같은 모델 규칙은 연산이 따진다.
+pub fn parse_composition(
+    text: &str,
+    keyword: &str,
+    colon_form: bool,
+) -> Result<Option<Composition>, String> {
+    let mut configurations: Vec<Configuration> = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let n = i + 1;
+        if let Some(name) = line
+            .strip_prefix("configuration")
+            .filter(|r| r.is_empty() || r.starts_with(char::is_whitespace))
+        {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(tf!("{n}번째 줄: 구성 이름이 필요하다"));
+            }
+            configurations.push(Configuration {
+                name: name.to_owned(),
+                composites: Vec::new(),
+            });
+        } else if let Some((name, list)) = line.split_once(':') {
+            let Some(cfg) = configurations.last_mut() else {
+                return Err(tf!(
+                    "{n}번째 줄: 합성 노드는 구성(configuration) 아래에 와야 한다"
+                ));
+            };
+            let logical: Vec<String> = list
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if logical.is_empty() {
+                return Err(tf!("{n}번째 줄: 논리 노드가 하나는 있어야 한다"));
+            }
+            cfg.composites.push(CompositeNode {
+                name: name.trim().to_owned(),
+                logical,
+            });
+        } else {
+            return Err(tf!(
+                "{n}번째 줄: `configuration 이름` 줄이나 `합성노드: 논리노드, …` 줄이어야 한다"
+            ));
+        }
+    }
+    if configurations.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Composition {
+        keyword: keyword.to_owned(),
+        configurations,
+        colon_form,
+        span: None,
+    }))
+}
+
 // ---- 미리 적용과 삭제 영향 --------------------------------------------------------------------
 
 /// 연산을 복사본에 적용해 본 결과.
@@ -1272,7 +1392,23 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
             .iter()
             .filter(|(_, s)| s.kind == SignalKind::Normal)
             .count();
-        (placements, slots, configurable, assoc, attrs, subs, sigs)
+        let logical: usize = m
+            .composition
+            .iter()
+            .flat_map(|c| &c.configurations)
+            .flat_map(|cfg| &cfg.composites)
+            .map(|n| n.logical.len())
+            .sum();
+        (
+            placements,
+            slots,
+            configurable,
+            assoc,
+            attrs,
+            subs,
+            sigs,
+            logical,
+        )
     };
     let (b, a) = (count(before), count(after));
     for (label, was, now) in [
@@ -1281,6 +1417,7 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
         ("configurable_frames 항목", b.2, a.2),
         ("스포라딕·이벤트 트리거 연관 프레임 항목", b.3, a.3),
         ("노드 속성 블록", b.4, a.4),
+        ("노드 구성의 논리 노드", b.7, a.7),
     ] {
         if now < was {
             out.push(tf!("{label} {}개 정리", was - now));

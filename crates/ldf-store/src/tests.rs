@@ -56,6 +56,7 @@ fn assert_same(a: &ldf_model::LdfModel, b: &ldf_model::LdfModel) {
     assert_eq!(a.frames, b.frames, "frames");
     assert_eq!(a.encodings, b.encodings, "encodings");
     assert_eq!(a.schedules, b.schedules, "schedules");
+    assert_eq!(a.composition, b.composition, "composition");
     assert_eq!(a.unknown_sections, b.unknown_sections, "unknown_sections");
     assert_eq!(a.section_order, b.section_order, "section_order");
 }
@@ -94,6 +95,40 @@ fn save_then_load_restores_an_identical_model() {
     assert_eq!(back.info.label, "test");
     assert_eq!(back.info.source_name.as_deref(), Some("sample.ldf"));
     store.check_integrity().expect("integrity");
+    assert!(
+        back.model.composition.is_some(),
+        "노드 구성이 모델에 있어야 한다"
+    );
+}
+
+#[test]
+fn composition_survives_in_both_forms() {
+    let mut store = Store::open_in_memory().expect("open");
+    let project = store.ensure_project("p").expect("project");
+    for src in [
+        "composite { configuration c { P { A, B; } } configuration d { Q { A; } } }",
+        "Node_composition { configuration c { P: A, B; } }",
+    ] {
+        let (id, loaded) = save(&mut store, project, None, src);
+        let back = store.load_revision(id).expect("load");
+        assert_same(&back.model, &loaded.model);
+        assert!(back.model.composition.is_some());
+    }
+    // 노드 구성이 없는 리비전은 없는 채로 돌아온다
+    let (id, _) = save(
+        &mut store,
+        project,
+        None,
+        "Nodes { Master: M, 1 ms, 0 ms; }",
+    );
+    assert!(
+        store
+            .load_revision(id)
+            .expect("load")
+            .model
+            .composition
+            .is_none()
+    );
 }
 
 #[test]

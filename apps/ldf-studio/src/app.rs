@@ -7,7 +7,9 @@ use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
 use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
-use crate::view::edit::{EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi};
+use crate::view::edit::{
+    CompositionUi, EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi,
+};
 use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
@@ -301,6 +303,13 @@ impl StudioApp {
             && let Some(d) = DeleteUi::new(m, what, op)
         {
             self.st.edit.dialog = Some(Dialog::Delete(d));
+        }
+    }
+
+    /// 노드 구성(composite) 대화상자를 연다.
+    fn open_composition(&mut self) {
+        if let Some(snap) = &self.snapshot {
+            self.st.edit.dialog = Some(Dialog::Composition(CompositionUi::from_model(&snap.model)));
         }
     }
 
@@ -776,6 +785,13 @@ impl StudioApp {
                         }
                     });
                 });
+                if ui
+                    .add_enabled(has, egui::Button::new(t("노드 구성…")))
+                    .clicked()
+                {
+                    self.open_composition();
+                    ui.close();
+                }
                 ui.separator();
                 if ui
                     .add_enabled(dirty, egui::Button::new(t("편집 저장    Ctrl+S")))

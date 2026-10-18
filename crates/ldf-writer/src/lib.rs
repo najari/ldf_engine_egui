@@ -117,6 +117,15 @@ fn adapt(model: &LdfModel, target: Target) -> (LdfModel, Vec<String>) {
 
     let before = m.unknown_sections.len();
     let mut dropped_names = Vec::new();
+    // 노드 구성: `Node_composition`은 LIN 2.1부터다
+    if target == Target::V2_0
+        && m.composition
+            .as_ref()
+            .is_some_and(|c| c.keyword == "Node_composition")
+    {
+        m.composition = None;
+        dropped_names.push("Node_composition".to_owned());
+    }
     m.unknown_sections.retain(|s| {
         let drop = match s.name.as_str() {
             "Node_composition" => target == Target::V2_0,
@@ -128,7 +137,7 @@ fn adapt(model: &LdfModel, target: Target) -> (LdfModel, Vec<String>) {
         }
         !drop
     });
-    if m.unknown_sections.len() != before {
+    if m.unknown_sections.len() != before || !dropped_names.is_empty() {
         warnings.push(format!(
             "대상 {version}에서 허용되지 않는 섹션을 뺐다: {}",
             dropped_names.join(", ")
@@ -137,8 +146,9 @@ fn adapt(model: &LdfModel, target: Target) -> (LdfModel, Vec<String>) {
     (m, warnings)
 }
 
-const CANONICAL_SECTIONS: [&str; 13] = [
+const CANONICAL_SECTIONS: [&str; 14] = [
     "Nodes",
+    "composite",
     "Node_composition",
     "Signals",
     "Diagnostic_signals",
@@ -155,12 +165,17 @@ const CANONICAL_SECTIONS: [&str; 13] = [
 
 /// 섹션 이름에 해당하는 본문. 해당 모델이 비었고 원문에도 없던 섹션이면 `None`.
 fn section_text(m: &LdfModel, name: &str, in_order: bool) -> Option<String> {
-    let raw: Vec<&str> = m
-        .unknown_sections
-        .iter()
-        .filter(|s| s.name == name)
-        .map(|s| s.text.trim())
-        .collect();
+    let mut raw: Vec<String> = Vec::new();
+    // 모델로 읽은 노드 구성은 원문 보관 섹션보다 앞에 쓴다(같은 이름이 둘 이상일 때)
+    if let Some(c) = m.composition.as_ref().filter(|c| c.keyword == name) {
+        raw.push(emit::composition(c));
+    }
+    raw.extend(
+        m.unknown_sections
+            .iter()
+            .filter(|s| s.name == name)
+            .map(|s| s.text.trim().to_owned()),
+    );
     if !raw.is_empty() {
         return Some(format!("{}\n", raw.join("\n")));
     }

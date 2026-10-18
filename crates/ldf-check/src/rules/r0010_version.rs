@@ -4,6 +4,21 @@ use crate::Rule;
 use crate::util::{Proto, diag};
 use ldf_model::{Diagnostic, LdfModel, Severity};
 
+/// 명세가 허용하는 버전 번호인지: 숫자이고 "0.01"–"99.99" 범위(LIN 2.2A §9.2.1.1·§9.2.1.2).
+fn in_spec_range(s: &str) -> bool {
+    s.parse::<f64>()
+        .is_ok_and(|v| s.contains('.') && (0.01..=99.99).contains(&v))
+}
+
+/// 알려지지 않은 버전 문자열을 설명하는 문장. 명세상 유효한 번호(예: 2.3)와 형식·범위가 틀린 값을 구분한다.
+fn unsupported(what: &str, s: &str) -> String {
+    if in_spec_range(s) {
+        format!("{what} \"{s}\"은(는) 명세상 유효한 번호지만 지원하는 버전이 아니다")
+    } else {
+        format!("{what} \"{s}\"은(는) 명세의 범위(\"0.01\"–\"99.99\")를 벗어났거나 형식이 틀렸다")
+    }
+}
+
 /// 규칙 0010.
 pub(crate) struct R0010;
 /// 등록용 인스턴스.
@@ -41,7 +56,7 @@ impl Rule for R0010 {
                         Severity::Error,
                         10,
                         None,
-                        format!("LIN_protocol_version \"{s}\"은(는) 지원하는 버전이 아니다"),
+                        unsupported("LIN_protocol_version", s),
                     ));
                 }
                 Some((s, p))
@@ -64,7 +79,7 @@ impl Rule for R0010 {
                         Severity::Error,
                         10,
                         None,
-                        format!("LIN_language_version \"{s}\"은(는) 지원하는 버전이 아니다"),
+                        unsupported("LIN_language_version", s),
                     ));
                 }
                 Some((s, p))
@@ -123,5 +138,18 @@ mod tests {
         let diff = "LIN_protocol_version = \"2.2\";\nLIN_language_version = \"2.1\";\n";
         assert_eq!(count(diff), 1);
         assert_eq!(count(""), 2); // 둘 다 없음
+    }
+
+    #[test]
+    fn unknown_versions_are_told_apart_by_the_spec_range() {
+        assert!(in_spec_range("2.3"));
+        assert!(in_spec_range("0.01"));
+        assert!(in_spec_range("99.99"));
+        assert!(!in_spec_range("100.00"));
+        assert!(!in_spec_range("0.00"));
+        assert!(!in_spec_range("abc"));
+        assert!(!in_spec_range("2"));
+        assert!(unsupported("X", "2.3").contains("명세상 유효한 번호"));
+        assert!(unsupported("X", "abc").contains("범위"));
     }
 }
