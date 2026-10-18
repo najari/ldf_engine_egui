@@ -41,6 +41,32 @@ pub fn decode(bytes: &[u8], encoding: &str) -> String {
     }
 }
 
+/// 텍스트를 인코딩 이름이 가리키는 바이트로 되돌린다. 표현할 수 없는 문자는 `?`가 된다.
+/// `decode(encode(t, enc), enc) == t` 는 `enc`로 표현 가능한 텍스트에서 성립한다.
+pub fn encode(text: &str, encoding: &str) -> Vec<u8> {
+    match encoding {
+        CP1252 => text
+            .chars()
+            .map(|c| match c {
+                '\u{0}'..='\u{7f}' | '\u{a0}'..='\u{ff}' => {
+                    u8::try_from(u32::from(c)).unwrap_or(b'?')
+                }
+                other => CP1252_HIGH
+                    .iter()
+                    .position(|h| *h == other)
+                    .and_then(|i| u8::try_from(i + 0x80).ok())
+                    .unwrap_or(b'?'),
+            })
+            .collect(),
+        UTF8_BOM => {
+            let mut out = vec![0xEF, 0xBB, 0xBF];
+            out.extend_from_slice(text.as_bytes());
+            out
+        }
+        _ => text.as_bytes().to_vec(),
+    }
+}
+
 /// 판별과 디코딩을 한 번에.
 pub fn decode_auto(bytes: &[u8]) -> (String, &'static str) {
     let enc = detect(bytes);
@@ -69,6 +95,18 @@ mod tests {
         ];
         assert_eq!(detect(&bytes), CP1252);
         assert_eq!(decode(&bytes, CP1252), "Türschloß – Größe €");
+    }
+
+    #[test]
+    fn encode_round_trips_each_encoding() {
+        let text = "Türschloß – Größe €";
+        assert_eq!(decode(&encode(text, CP1252), CP1252), text);
+        assert_eq!(decode(&encode("한글 abc", UTF8), UTF8), "한글 abc");
+        let bom = encode("abc", UTF8_BOM);
+        assert_eq!(bom, [0xEF, 0xBB, 0xBF, b'a', b'b', b'c']);
+        assert_eq!(decode(&bom, UTF8_BOM), "abc");
+        // CP1252로 표현할 수 없는 문자는 ?
+        assert_eq!(encode("a한b", CP1252), b"a?b");
     }
 
     #[test]

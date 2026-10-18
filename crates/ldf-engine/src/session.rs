@@ -1,5 +1,6 @@
 //! 동기 세션: 프로젝트 DB 하나와 그 위의 임포트·열기. 워커 스레드, CLI, 테스트가 함께 쓴다.
 
+use crate::analysis::analyze;
 use crate::decode;
 use crate::error::{EngineError, Result};
 use ldf_model::{Diagnostic, LdfModel, LineIndex};
@@ -102,11 +103,34 @@ impl Session {
         self.import_bytes(&name, &bytes)
     }
 
-    /// 바이트를 임포트한다: 인코딩 판별 → 파싱 → 단일 트랜잭션으로 저장.
+    /// 바이트를 임포트한다: 인코딩 판별 → 파싱 → 검사 → 단일 트랜잭션으로 저장.
     ///
     /// 같은 프로젝트에 원본 바이트가 완전히 같은 리비전이 있으면 새로 만들지 않고 그것을 연다.
     /// 같은 파일 이름의 최근 리비전이 있으면 그 리비전을 부모로 연결한다.
     pub fn import_bytes(&mut self, name: &str, bytes: &[u8]) -> Result<ImportOutcome> {
+        self.store_bytes(name, bytes, None)
+    }
+
+    /// 편집한 텍스트를 새 리비전으로 저장한다(FR-CHK-05). 원본 인코딩으로 다시 인코딩하고,
+    /// `parent`를 부모 리비전으로 연결한다. 같은 바이트가 이미 있으면 그것을 연다.
+    pub fn apply_text(
+        &mut self,
+        name: &str,
+        text: &str,
+        encoding: &str,
+        parent: Option<i64>,
+    ) -> Result<ImportOutcome> {
+        let bytes = decode::encode(text, encoding);
+        self.store_bytes(name, &bytes, Some(parent))
+    }
+
+    /// `parent`가 `None`이면 같은 파일 이름의 최근 리비전을, `Some(p)`이면 `p`를 부모로 쓴다.
+    fn store_bytes(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        parent: Option<Option<i64>>,
+    ) -> Result<ImportOutcome> {
         if let Some(id) = self.store.find_revision_by_source(self.project_id, bytes)? {
             let snapshot = self.open_revision(id)?;
             return Ok(ImportOutcome {
@@ -115,18 +139,17 @@ impl Session {
             });
         }
 
-        let (text, encoding) = decode::decode_auto(bytes);
-        let mut loaded = ldf_model::load(&text);
-        loaded.model.header.encoding = encoding.to_owned();
-        // M2: 여기서 ldf-check 규칙을 실행해 진단을 합친다.
-
-        let parent_id = self
-            .store
-            .list_revisions(self.project_id)?
-            .iter()
-            .rev()
-            .find(|r| r.source_name.as_deref() == Some(name))
-            .map(|r| r.id);
+        let analysis = analyze(bytes);
+        let parent_id = match parent {
+            Some(p) => p,
+            None => self
+                .store
+                .list_revisions(self.project_id)?
+                .iter()
+                .rev()
+                .find(|r| r.source_name.as_deref() == Some(name))
+                .map(|r| r.id),
+        };
 
         let id = self.store.save_revision(&NewRevision {
             project_id: self.project_id,
@@ -134,8 +157,8 @@ impl Session {
             label: name,
             source_name: Some(name),
             source: bytes,
-            model: &loaded.model,
-            diagnostics: &loaded.diagnostics,
+            model: &analysis.model,
+            diagnostics: &analysis.diagnostics,
         })?;
         let snapshot = self.open_revision(id)?;
         Ok(ImportOutcome {
@@ -143,7 +166,6 @@ impl Session {
             reused: false,
         })
     }
-
     /// 리비전을 열어 스냅샷을 만든다.
     pub fn open_revision(&mut self, id: i64) -> Result<Arc<ModelSnapshot>> {
         let StoredRevision {
@@ -266,6 +288,40 @@ mod tests {
             .expect("import");
         assert!(!out.snapshot.diagnostics.is_empty());
         s.check_integrity().expect("integrity");
+    }
+
+    #[test]
+    fn applying_edited_text_creates_a_child_revision_in_the_original_encoding() {
+        let mut bytes = b"LIN_description_file;\nLIN_speed = 19.2 kbps;\n// T".to_vec();
+        bytes.push(0xFC); // ü (CP1252)
+        bytes.extend_from_slice(b"r\nNodes { Master: M, 1 ms, 0 ms; Slaves: A; }\n");
+        let mut s = Session::open_in_memory().expect("session");
+        let first = s.import_bytes("de.ldf", &bytes).expect("import").snapshot;
+        assert_eq!(first.revision.encoding, "windows-1252");
+
+        let edited = first.source.replace("19.2 kbps", "10.4 kbps");
+        let out = s
+            .apply_text(
+                "de.ldf",
+                &edited,
+                &first.revision.encoding,
+                Some(first.revision.id),
+            )
+            .expect("apply");
+        assert!(!out.reused);
+        let second = &out.snapshot;
+        assert_eq!(second.revision.parent_id, Some(first.revision.id));
+        assert_eq!(second.revision.speed_bps, Some(10_400));
+        assert_eq!(second.revision.encoding, "windows-1252");
+        // 한 글자만 바뀌었으므로 ü는 같은 CP1252 바이트로 저장된다
+        assert!(second.source.contains("Tür"));
+
+        // 같은 텍스트를 다시 적용하면 새 리비전이 생기지 않는다
+        let again = s
+            .apply_text("de.ldf", &edited, "windows-1252", Some(second.revision.id))
+            .expect("apply");
+        assert!(again.reused);
+        assert_eq!(s.revisions().expect("list").len(), 2);
     }
 
     /// 프레임 `n`개짜리 LDF를 만든다(프레임당 시그널 2개).

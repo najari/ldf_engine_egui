@@ -24,6 +24,17 @@ pub enum Command {
         /// 파일 내용.
         bytes: Vec<u8>,
     },
+    /// 편집한 텍스트를 새 리비전으로 저장하고 다시 검사한다(Checker 창의 Run Checks).
+    ApplyText {
+        /// 파일 이름(리비전 라벨).
+        name: String,
+        /// 편집한 전체 텍스트.
+        text: String,
+        /// 원본 인코딩 이름.
+        encoding: String,
+        /// 부모 리비전.
+        parent: Option<i64>,
+    },
     /// 리비전을 연다.
     OpenRevision(i64),
     /// 리비전 목록을 다시 보낸다.
@@ -190,6 +201,15 @@ fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
         }
         Command::ImportBytes { name, bytes } => {
             let out = session.import_bytes(&name, &bytes)?;
+            loaded(session, out)
+        }
+        Command::ApplyText {
+            name,
+            text,
+            encoding,
+            parent,
+        } => {
+            let out = session.apply_text(&name, &text, &encoding, parent)?;
             loaded(session, out)
         }
         Command::OpenRevision(id) => {

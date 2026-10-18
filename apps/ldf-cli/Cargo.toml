@@ -9,6 +9,11 @@ publish.workspace = true
 [dependencies]
 ldf-engine.workspace = true
 ldf-model.workspace = true
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

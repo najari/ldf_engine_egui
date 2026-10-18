@@ -1776,6 +1776,7 @@ version = "0.1.0"
 dependencies = [
  "ldf-engine",
  "ldf-model",
+ "serde_json",
 ]
 
 [[package]]
@@ -1783,6 +1784,7 @@ name = "ldf-engine"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "ldf-check",
  "ldf-model",
  "ldf-store",
  "thiserror 2.0.21",
