@@ -359,3 +359,151 @@ fn name_lists_for_combo_boxes() {
     assert!(frame_names(&m, false).contains(&"ETF".to_owned()));
     assert_eq!(master_name(&m), "M");
 }
+
+// ---- 속성 창에서 바로 고치기(FR-EDT-01) ----
+
+use crate::view::Selection;
+
+fn sel_frame(m: &LdfModel, name: &str) -> Selection {
+    Selection::Frame(m.find_frame(name).expect("frame"))
+}
+
+#[test]
+fn only_plain_values_are_editable_inline() {
+    let m = model();
+    let f = sel_frame(&m, "FA");
+    for key in ["Name", "Frame ID", "Size [Byte]"] {
+        assert!(inline_editable(InlineScope::Object, &f, key), "{key}");
+    }
+    // 계산한 값·참조는 바로 고치지 않는다
+    for key in ["Protected ID", "Type", "Publisher", "Subscribers"] {
+        assert!(!inline_editable(InlineScope::Object, &f, key), "{key}");
+    }
+    let t = Selection::Slot(m.find_schedule("Main").expect("Main"), 0);
+    assert!(inline_editable(InlineScope::Schedule, &t, "Delay [ms]"));
+    // 슬롯을 고른 상태에서 객체 표의 Name은 프레임 이름인데 스케줄 표와 헷갈리면 안 된다
+    assert!(!inline_editable(InlineScope::Object, &t, "Name"));
+    assert!(!inline_editable(
+        InlineScope::Object,
+        &Selection::Cluster,
+        "Name"
+    ));
+}
+
+#[test]
+fn out_of_range_frame_id_is_rejected_while_typing() {
+    let m = model();
+    let sel = sel_frame(&m, "FA");
+    // PRD: 프레임 ID에 64를 넣으면 필드가 빨개지고 적용되지 않는다
+    let err = inline_edit(&m, InlineScope::Object, &sel, "Frame ID", "64").expect_err("범위 밖");
+    assert!(err.contains("0–59"), "{err}");
+    assert!(inline_edit(&m, InlineScope::Object, &sel, "Frame ID", "abc").is_err());
+    // 맞는 값은 16진도 받는다
+    let op = inline_edit(&m, InlineScope::Object, &sel, "Frame ID", "0x0A").expect("맞는 값");
+    let after = apply(&m, &op);
+    assert_eq!(
+        after
+            .frames
+            .get(after.find_frame("FA").expect("FA"))
+            .and_then(|f| f.lin_id()),
+        Some(10)
+    );
+}
+
+#[test]
+fn inline_names_must_be_valid_and_unique() {
+    let m = model();
+    let sel = sel_frame(&m, "FA");
+    assert!(
+        inline_edit(&m, InlineScope::Object, &sel, "Name", "FCmd").is_err(),
+        "이미 있는 이름"
+    );
+    assert!(inline_edit(&m, InlineScope::Object, &sel, "Name", "9bad").is_err());
+    let op = inline_edit(&m, InlineScope::Object, &sel, "Name", "  Renamed  ")
+        .expect("공백은 떼고 받는다");
+    assert!(apply(&m, &op).find_frame("Renamed").is_some());
+    // 자기 이름 그대로는 허용
+    assert!(inline_edit(&m, InlineScope::Object, &sel, "Name", "FA").is_ok());
+}
+
+#[test]
+fn inline_signal_node_and_schedule_values() {
+    let m = model();
+    let sig = Selection::Signal(m.find_signal("Cmd").expect("Cmd"));
+    assert!(inline_edit(&m, InlineScope::Object, &sig, "Length [Bit]", "17").is_err());
+    assert!(
+        inline_edit(&m, InlineScope::Object, &sig, "Init Value", "300").is_err(),
+        "8비트로 표현 못 한다"
+    );
+    let op = inline_edit(&m, InlineScope::Object, &sig, "Init Value", "7").expect("ok");
+    let after = apply(&m, &op);
+    assert_eq!(
+        after
+            .signals
+            .get(after.find_signal("Cmd").expect("Cmd"))
+            .map(|s| s.init.clone()),
+        Some(InitValue::Scalar(7))
+    );
+
+    let master = Selection::Node(m.find_node("M").expect("M"));
+    assert!(inline_edit(&m, InlineScope::Object, &master, "Timebase [ms]", "x").is_err());
+    let op = inline_edit(&m, InlineScope::Object, &master, "Timebase [ms]", "2").expect("ok");
+    assert_eq!(
+        apply(&m, &op)
+            .nodes
+            .iter()
+            .next()
+            .and_then(|(_, n)| n.timebase_ms),
+        Some(2.0)
+    );
+    // 슬레이브에는 타임베이스가 없다
+    let slave = Selection::Node(m.find_node("A").expect("A"));
+    assert!(inline_edit(&m, InlineScope::Object, &slave, "Timebase [ms]", "2").is_err());
+
+    let main = m.find_schedule("Main").expect("Main");
+    assert!(
+        inline_edit(
+            &m,
+            InlineScope::Schedule,
+            &Selection::Slot(main, 0),
+            "Delay [ms]",
+            "-1"
+        )
+        .is_err()
+    );
+    let op = inline_edit(
+        &m,
+        InlineScope::Schedule,
+        &Selection::Slot(main, 0),
+        "Delay [ms]",
+        "25",
+    )
+    .expect("ok");
+    let after = apply(&m, &op);
+    let slot = &after
+        .schedules
+        .get(after.find_schedule("Main").expect("Main"))
+        .expect("table")
+        .slots[0];
+    assert!((slot.delay_ms - 25.0).abs() < 1e-9);
+    assert!(
+        inline_edit(
+            &m,
+            InlineScope::Schedule,
+            &Selection::Slot(main, 99),
+            "Delay [ms]",
+            "25"
+        )
+        .is_err(),
+        "없는 슬롯"
+    );
+    let op = inline_edit(
+        &m,
+        InlineScope::Schedule,
+        &Selection::Schedule(main),
+        "Name",
+        "Primary",
+    )
+    .expect("ok");
+    assert!(apply(&m, &op).find_schedule("Primary").is_some());
+}

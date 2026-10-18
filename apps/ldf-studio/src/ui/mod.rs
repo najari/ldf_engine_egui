@@ -82,6 +82,8 @@ pub struct UiState {
     pub edit: edit::EditState,
     /// 리비전 창.
     pub revisions: revisions::RevState,
+    /// 속성 창에서 고치는 중인 칸.
+    pub inline: props::Inline,
     /// 내비게이션에서 항목을 더블클릭(또는 Enter)해 편집을 열라는 요청.
     pub activate: bool,
     /// 내비게이션에서 Delete 키로 삭제를 열라는 요청.

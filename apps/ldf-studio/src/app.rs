@@ -6,7 +6,7 @@ use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
 use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
-use crate::view::edit::{EncodingUi, FrameUi, NodeUi, ScheduleUi, SignalUi};
+use crate::view::edit::{EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi};
 use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
@@ -1143,6 +1143,15 @@ impl StudioApp {
                 view::props::schedule_props(&snap.model, &sel)
             };
             let height = ui.available_height();
+            // 속성 창의 입력 상태는 본 뷰와 동시에 빌릴 수 없어 잠시 꺼내 쓴다
+            let mut inline = std::mem::take(&mut self.st.inline);
+            let selection = self.st.selection.clone();
+            let sched_selection = match (&selection, self.st.last_schedule) {
+                (s @ (Selection::Schedule(_) | Selection::Slot(..)), _) => s.clone(),
+                (_, Some(last)) => Selection::Schedule(last),
+                _ => Selection::None,
+            };
+            let mut inline_op: Option<EditOp> = None;
 
             egui::Panel::top("schedule-region")
                 .resizable(true)
@@ -1153,7 +1162,19 @@ impl StudioApp {
                         ui,
                         |ui| schedule::show(ui, snap, &mut self.st),
                         |ui| match &sched_props {
-                            Some(sec) => props::section(ui, "sched-props", sec),
+                            Some(sec) => {
+                                let cx = props::EditCtx {
+                                    model: &snap.model,
+                                    selection: &sched_selection,
+                                    scope: InlineScope::Schedule,
+                                    inline: &mut inline,
+                                };
+                                if let Some(op) =
+                                    props::section_editable(ui, "sched-props", sec, cx)
+                                {
+                                    inline_op = Some(op);
+                                }
+                            }
                             None => props::placeholder(
                                 ui,
                                 "Schedule Properties",
@@ -1174,7 +1195,17 @@ impl StudioApp {
                 |ui| context::show(ui, snap, &mut self.st, hex),
                 |ui| {
                     match &obj_props {
-                        Some(sec) => props::section(ui, "obj-props", sec),
+                        Some(sec) => {
+                            let cx = props::EditCtx {
+                                model: &snap.model,
+                                selection: &selection,
+                                scope: InlineScope::Object,
+                                inline: &mut inline,
+                            };
+                            if let Some(op) = props::section_editable(ui, "obj-props", sec, cx) {
+                                inline_op = Some(op);
+                            }
+                        }
                         None => props::placeholder(ui, "Properties", "항목을 선택하세요"),
                     }
                     if let Some(f) = frame_for_bits {
@@ -1182,8 +1213,36 @@ impl StudioApp {
                     }
                 },
             );
+            self.st.inline = inline;
+            if let Some(op) = inline_op {
+                // 이름을 바꾸면 선택이 그 이름을 따라가게 한다
+                self.select_after_edit = renamed_selection(&snap.model, &self.st.selection, &op);
+                self.edit(op);
+            }
         });
     }
+}
+
+/// 속성 창에서 이름을 바꾸는 연산이면, 편집 뒤에도 선택이 바뀐 이름의 객체를 가리키게 하는 키.
+fn renamed_selection(m: &ldf_model::LdfModel, sel: &Selection, op: &EditOp) -> Option<SelKey> {
+    let EditOp::Batch(ops) = op else {
+        return match op {
+            EditOp::RenameSchedule { to, .. } => Some(SelKey::Schedule(to.clone())),
+            _ => None,
+        };
+    };
+    ops.iter()
+        .find_map(|o| match (o, sel) {
+            (EditOp::EditFrame { draft, .. }, Selection::Frame(_)) => {
+                Some(SelKey::Frame(draft.name.clone()))
+            }
+            (EditOp::EditSignal { draft, .. }, Selection::Signal(_)) => {
+                Some(SelKey::Signal(draft.name.clone()))
+            }
+            (EditOp::RenameNode { to, .. }, Selection::Node(_)) => Some(SelKey::Node(to.clone())),
+            _ => None,
+        })
+        .or_else(|| Some(sel.key(m)))
 }
 
 /// 왼쪽에 본 뷰, 오른쪽에 속성 창을 두는 가로 분할.

@@ -3,6 +3,7 @@
 //! 대화상자는 초안 구조체를 들고 있다가 OK에서 `EditOp::Batch` 하나로 바꿔 보낸다(Undo 한 번에 대화상자 전체가 취소된다).
 //! 초안은 [`preview`]로 모델 복사본에 미리 적용해 보고, 적용 실패와 이 변경으로 새로 생기는 검사 결과를 입력 중에 보여 준다.
 
+use crate::view::Selection;
 use ldf_model::{
     AttrsDraft, Diagnostic, EditOp, EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind,
     InitValue, LdfModel, NodeId, NodeRole, ProductId, Ref, SignalDraft, SignalId, SignalKind,
@@ -1284,6 +1285,121 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
         }
     }
     out
+}
+
+/// 속성 창의 어느 표인지(같은 키 `Name`이 대상에 따라 달라지므로 구분한다).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InlineScope {
+    /// 선택한 객체의 속성 표.
+    Object,
+    /// 스케줄 테이블·슬롯의 속성 표.
+    Schedule,
+}
+
+/// 속성 창에서 값을 바로 고칠 수 있는 항목인지(FR-EDT-01).
+pub fn inline_editable(scope: InlineScope, sel: &Selection, key: &str) -> bool {
+    match (scope, sel) {
+        (InlineScope::Object, Selection::Frame(_)) => {
+            matches!(key, "Name" | "Frame ID" | "Size [Byte]")
+        }
+        (InlineScope::Object, Selection::Signal(_)) => {
+            matches!(key, "Name" | "Length [Bit]" | "Init Value")
+        }
+        (InlineScope::Object, Selection::Node(_)) => {
+            matches!(key, "Name" | "Timebase [ms]" | "Jitter [ms]")
+        }
+        (InlineScope::Schedule, Selection::Schedule(_)) => key == "Name",
+        (InlineScope::Schedule, Selection::Slot(..)) => key == "Delay [ms]",
+        _ => false,
+    }
+}
+
+/// 속성 창에서 입력한 값을 연산으로 바꾼다. 형식이 틀리거나 범위 밖이거나 모델이 받아들이지 않으면 사유를 돌려준다.
+/// 대화상자와 같은 초안·검증을 쓰므로 한 곳에서 고치든 다른 곳에서 고치든 규칙이 같다.
+pub fn inline_edit(
+    m: &LdfModel,
+    scope: InlineScope,
+    sel: &Selection,
+    key: &str,
+    text: &str,
+) -> Result<EditOp, String> {
+    let text = text.trim();
+    let op = match (scope, sel) {
+        (InlineScope::Object, Selection::Frame(id)) => {
+            let mut ui = FrameUi::from_frame(m, *id).ok_or("이 프레임은 편집할 수 없다")?;
+            match (key, &mut ui.kind) {
+                ("Name", _) => ui.name = text.to_owned(),
+                (
+                    "Frame ID",
+                    KindUi::Unconditional { id, .. } | KindUi::EventTriggered { id, .. },
+                ) => {
+                    *id = text.to_owned();
+                }
+                ("Size [Byte]", KindUi::Unconditional { size, .. }) => {
+                    *size = parse_uint(text).ok_or("크기는 정수여야 한다")?;
+                }
+                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+            }
+            if let Some(p) = ui.problems().into_iter().next() {
+                return Err(p);
+            }
+            ui.to_op(m)?
+        }
+        (InlineScope::Object, Selection::Signal(id)) => {
+            let mut ui = SignalUi::from_signal(m, *id).ok_or("시그널을 찾을 수 없다")?;
+            match key {
+                "Name" => ui.name = text.to_owned(),
+                "Length [Bit]" => ui.size = parse_uint(text).ok_or("길이는 정수여야 한다")?,
+                "Init Value" => ui.init = text.to_owned(),
+                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+            }
+            if let Some(p) = ui.problems().into_iter().next() {
+                return Err(p);
+            }
+            ui.to_op()?
+        }
+        (InlineScope::Object, Selection::Node(id)) => {
+            let mut ui = NodeUi::from_node(m, *id).ok_or("노드를 찾을 수 없다")?;
+            match key {
+                "Name" => ui.name = text.to_owned(),
+                "Timebase [ms]" if ui.master => ui.timebase = text.to_owned(),
+                "Jitter [ms]" if ui.master => ui.jitter = text.to_owned(),
+                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+            }
+            ui.to_op()?
+        }
+        (InlineScope::Schedule, Selection::Schedule(id)) if key == "Name" => {
+            EditOp::RenameSchedule {
+                from: m
+                    .schedules
+                    .get(*id)
+                    .map(|t| t.name.clone())
+                    .ok_or("테이블을 찾을 수 없다")?,
+                to: text.to_owned(),
+            }
+        }
+        (InlineScope::Schedule, Selection::Slot(id, index)) if key == "Delay [ms]" => {
+            let delay_ms: f64 = text.parse().map_err(|_| "delay는 숫자여야 한다")?;
+            if delay_ms < 0.0 {
+                return Err("delay는 0 이상이어야 한다".to_owned());
+            }
+            EditOp::SetSlotDelay {
+                table: m
+                    .schedules
+                    .get(*id)
+                    .map(|t| t.name.clone())
+                    .ok_or("테이블을 찾을 수 없다")?,
+                index: *index,
+                delay_ms,
+            }
+        }
+        _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+    };
+    // 모델이 받아들이는지(이름 중복, 없는 대상 등)는 복사본에 적용해 본다
+    match preview(m, &op).error {
+        Some(e) => Err(e),
+        None => Ok(op),
+    }
 }
 
 /// 노드 이름 목록(슬레이브만 또는 전체).
