@@ -196,6 +196,19 @@ impl Session {
             model: &analysis.model,
             diagnostics: &analysis.diagnostics,
         })?;
+        let errors = analysis
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .count();
+        // 내용(이름·경로)은 남기지 않고 크기와 개수만 적는다(NFR-05)
+        tracing::info!(
+            revision = id,
+            bytes = bytes.len(),
+            diagnostics = analysis.diagnostics.len(),
+            errors,
+            "리비전 저장"
+        );
         let snapshot = self.open_revision(id)?;
         Ok(ImportOutcome {
             snapshot,

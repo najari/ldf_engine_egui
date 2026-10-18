@@ -141,6 +141,12 @@ impl Session {
             path: path.to_owned(),
             source,
         })?;
+        tracing::info!(
+            bytes = bytes.len(),
+            warnings = warnings.len(),
+            verified,
+            "내보냈다"
+        );
         Ok(ExportReport {
             path: path.to_owned(),
             bytes: bytes.len(),

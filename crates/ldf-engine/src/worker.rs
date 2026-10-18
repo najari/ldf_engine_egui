@@ -261,9 +261,18 @@ fn run(
 
     let mut current: Option<Arc<ModelSnapshot>> = None;
     while let Ok(cmd) = cmd_rx.recv() {
+        let name = command_name(&cmd);
+        let started = std::time::Instant::now();
         let result = catch_unwind(AssertUnwindSafe(|| handle(&mut session, &current, cmd)));
+        let ms = started.elapsed().as_millis();
         match result {
             Ok(Ok(events)) => {
+                tracing::info!(
+                    command = name,
+                    ms = ms as u64,
+                    events = events.len(),
+                    "명령 처리"
+                );
                 for e in &events {
                     match e {
                         Event::Loaded { snapshot, .. }
@@ -276,12 +285,42 @@ fn run(
                 }
                 events.into_iter().for_each(&send);
             }
-            Ok(Err(e)) => send(Event::Failed(e.to_string())),
+            Ok(Err(e)) => {
+                // 메시지에는 이름·경로가 들어 있을 수 있어 로그에는 오류의 종류만 남긴다(NFR-05)
+                tracing::warn!(
+                    command = name,
+                    error = e.kind(),
+                    ms = ms as u64,
+                    "명령 실패"
+                );
+                send(Event::Failed(e.to_string()));
+            }
             Err(p) => {
+                tracing::error!(command = name, "작업자가 패닉했다");
                 send(Event::Fatal(panic_text(&p)));
                 return;
             }
         }
+    }
+}
+
+/// 명령의 종류 이름(내용 없이 로그용).
+fn command_name(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::OpenProject(_) => "open_project",
+        Command::Import(_) => "import",
+        Command::ImportBytes { .. } => "import_bytes",
+        Command::ApplyText { .. } => "apply_text",
+        Command::OpenRevision(_) => "open_revision",
+        Command::RefreshRevisions => "refresh_revisions",
+        Command::Edit(op) => op.kind(),
+        Command::Undo => "undo",
+        Command::Redo => "redo",
+        Command::SaveEdits { .. } => "save_edits",
+        Command::DiffRevisions { .. } => "diff_revisions",
+        Command::DeleteRevision(_) => "delete_revision",
+        Command::SetRule { .. } => "set_rule",
+        Command::Export { .. } => "export",
     }
 }
 

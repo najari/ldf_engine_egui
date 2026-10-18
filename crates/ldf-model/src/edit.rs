@@ -850,6 +850,39 @@ fn unconditional_signals_mut<'a>(
 }
 
 impl EditOp {
+    /// 연산의 종류 이름. 대상의 이름·값은 들어 있지 않아 로그에 남겨도 된다.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            EditOp::Batch(_) => "batch",
+            EditOp::SetSpeed(_) => "set_speed",
+            EditOp::SetChannelName(_) => "set_channel_name",
+            EditOp::SetMasterTiming { .. } => "set_master_timing",
+            EditOp::AddSlave(_) => "add_slave",
+            EditOp::RenameNode { .. } => "rename_node",
+            EditOp::DeleteNode(_) => "delete_node",
+            EditOp::AddSignal(_) => "add_signal",
+            EditOp::EditSignal { .. } => "edit_signal",
+            EditOp::DeleteSignal(_) => "delete_signal",
+            EditOp::AddFrame(_) => "add_frame",
+            EditOp::EditFrame { .. } => "edit_frame",
+            EditOp::DeleteFrame(_) => "delete_frame",
+            EditOp::PlaceSignal { .. } => "place_signal",
+            EditOp::UnplaceSignal { .. } => "unplace_signal",
+            EditOp::MoveSignal { .. } => "move_signal",
+            EditOp::AddEncoding { .. } => "add_encoding",
+            EditOp::EditEncoding { .. } => "edit_encoding",
+            EditOp::DeleteEncoding(_) => "delete_encoding",
+            EditOp::AddSchedule(_) => "add_schedule",
+            EditOp::RenameSchedule { .. } => "rename_schedule",
+            EditOp::DeleteSchedule(_) => "delete_schedule",
+            EditOp::AddSlot { .. } => "add_slot",
+            EditOp::RemoveSlot { .. } => "remove_slot",
+            EditOp::MoveSlot { .. } => "move_slot",
+            EditOp::SetSlotDelay { .. } => "set_slot_delay",
+            EditOp::SetNodeAttrs { .. } => "set_node_attrs",
+        }
+    }
+
     /// 모델에 적용한다. 실패하면 모델은 그대로다.
     pub fn apply(&self, model: &mut LdfModel) -> std::result::Result<(), EditError> {
         let mut work = model.clone();

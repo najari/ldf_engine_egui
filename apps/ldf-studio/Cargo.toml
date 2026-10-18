@@ -11,12 +11,15 @@ ldf-engine.workspace = true
 ldf-model.workspace = true
 ldf-check.workspace = true
 ldf-syntax.workspace = true
-eframe = { workspace = true, features = ["persistence"] }
+eframe = { workspace = true, features = ["accesskit", "default_fonts", "glow", "persistence", "wgpu"] }
 egui.workspace = true
 egui_extras.workspace = true
 egui_ltreeview.workspace = true
 rfd.workspace = true
 serde.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

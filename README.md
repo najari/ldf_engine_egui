@@ -73,7 +73,9 @@ scripts\package.ps1 -Sign 인증서.pfx     # signtool로 서명(비밀번호는
 태그(`v*`)를 밀면 .github/workflows/release.yml이 같은 zip을 만들어 릴리스에 올린다.
 ```
 
-환경 변수: `LDF_STUDIO_PROJECT`(프로젝트 DB 위치, 기본 `%LOCALAPPDATA%\LDFStudio\default.ldfdb`), `LDF_STUDIO_PERF=1`(상태 바에 프레임당 CPU 시간).
+환경 변수: `LDF_STUDIO_PROJECT`(프로젝트 DB 위치, 기본 `%LOCALAPPDATA%\LDFStudio\default.ldfdb`), `LDF_STUDIO_PERF=1`(상태 바에 프레임당 CPU 시간), `LDF_STUDIO_LOG_DIR`(로그 폴더, 기본 `%LOCALAPPDATA%\LDFStudio\logs`), `LDF_STUDIO_RENDERER=glow|wgpu`(렌더러 하나만 고르기).
+
+렌더러는 OpenGL(glow)을 먼저 쓰고, 시작에 실패하면(그래픽 드라이버가 없는 가상 머신 등) wgpu로 다시 시도한다. 측정(릴리스, 1 MB LDF): glow 작업 집합 약 207 MB, wgpu 약 455 MB, 콜드 스타트 1초 미만.
 
 ## 개발
 

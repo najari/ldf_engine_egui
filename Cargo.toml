@@ -25,13 +25,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 crossbeam-channel = "0.5"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+tracing-appender = "0.2"
 
 # 저장소
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
 
 # UI (egui 생태계는 0.36에 맞춘다)
-eframe = "0.36"
+# wgpu 대신 glow(OpenGL)를 쓴다: Windows에서 GPU 드라이버가 잡는 메모리가 훨씬 작아 NFR-01(1 MB LDF에서 300 MB 이하)을 맞출 수 있다.
+eframe = { version = "0.36", default-features = false }
 egui = "0.36"
 egui_extras = "0.36"
 egui_ltreeview = "0.9"

@@ -38,3 +38,17 @@ pub enum EngineError {
     #[error("엔진 작업자가 종료되었다")]
     WorkerGone,
 }
+
+impl EngineError {
+    /// 오류의 종류 이름. 경로·이름 같은 내용이 들어 있지 않아 로그에 남겨도 된다.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            EngineError::Io { .. } => "io",
+            EngineError::Store(_) => "store",
+            EngineError::Edit(_) => "edit",
+            EngineError::ExportBlocked { .. } => "export_blocked",
+            EngineError::NothingOpen => "nothing_open",
+            EngineError::WorkerGone => "worker_gone",
+        }
+    }
+}
