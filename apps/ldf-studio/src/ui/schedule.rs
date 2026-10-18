@@ -47,6 +47,8 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
     let error = ui.visuals().error_fg_color;
     let weak = ui.visuals().weak_text_color();
 
+    // 라벨이 클릭을 가로채지 않도록 텍스트 선택을 끈다(행 어디를 눌러도 행이 선택된다)
+    ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
         .id_salt("schedule-table")
         .striped(true)

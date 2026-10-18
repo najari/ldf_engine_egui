@@ -1,7 +1,9 @@
 //! egui 패널. 무엇을 보여줄지는 `view`가 정하고, 여기서는 그리고 입력을 상태에 반영한다.
 
 pub mod bits;
+pub mod checker;
 pub mod context;
+pub mod editor;
 pub mod nav;
 pub mod props;
 pub mod schedule;
@@ -69,6 +71,8 @@ pub struct UiState {
     pub nav_cache: Cache<NavKeyCache, Option<NavNode>>,
     /// 컨텍스트 표 캐시.
     pub ctx_cache: Cache<CtxKeyCache, Table>,
+    /// Checker 창.
+    pub checker: checker::CheckerState,
 }
 
 impl UiState {

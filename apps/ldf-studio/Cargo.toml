@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 ldf-engine.workspace = true
 ldf-model.workspace = true
+ldf-check.workspace = true
+ldf-syntax.workspace = true
 eframe = { workspace = true, features = ["persistence"] }
 egui.workspace = true
 egui_extras.workspace = true

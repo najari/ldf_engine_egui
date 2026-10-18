@@ -5,8 +5,9 @@ use egui::{Align, Layout, Ui};
 use ldf_engine::ModelSnapshot;
 use ldf_model::{NodeRole, Severity};
 
-/// 상태 바를 그린다.
-pub fn show(ui: &mut Ui, snap: Option<&ModelSnapshot>, busy: bool, perf_ms: Option<f32>) {
+/// 상태 바를 그린다. 왼쪽 진단 요약을 눌렀으면 `true`(Checker 창을 연다).
+pub fn show(ui: &mut Ui, snap: Option<&ModelSnapshot>, busy: bool, perf_ms: Option<f32>) -> bool {
+    let mut clicked = false;
     ui.horizontal(|ui| {
         if busy {
             ui.spinner();
@@ -17,7 +18,7 @@ pub fn show(ui: &mut Ui, snap: Option<&ModelSnapshot>, busy: bool, perf_ms: Opti
             ui.weak("열린 파일 없음");
             return;
         };
-        diagnostics_summary(ui, snap);
+        clicked = diagnostics_summary(ui, snap);
         if let Some(ms) = perf_ms {
             ui.separator();
             ui.label(format!("UI {ms:.1} ms/프레임"));
@@ -67,9 +68,10 @@ pub fn show(ui: &mut Ui, snap: Option<&ModelSnapshot>, busy: bool, perf_ms: Opti
             }
         });
     });
+    clicked
 }
 
-fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) {
+fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) -> bool {
     let count = |s: Severity| snap.diagnostics.iter().filter(|d| d.severity == s).count();
     let (errors, warnings, infos) = (
         count(Severity::Error),
@@ -78,7 +80,7 @@ fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) {
     );
     if errors + warnings + infos == 0 {
         ui.label("문제 없음");
-        return;
+        return false;
     }
     let color = if errors > 0 {
         ui.visuals().error_fg_color
@@ -89,6 +91,8 @@ fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) {
         "진단 {}건: 오류 {errors} · 경고 {warnings} · 참고 {infos}",
         errors + warnings + infos
     );
-    ui.colored_label(color, text)
-        .on_hover_text("Checker 창(검사 결과 목록과 텍스트 편집)은 M2에서 제공된다");
+    ui.add(egui::Label::new(egui::RichText::new(text).color(color)).sense(egui::Sense::click()))
+        .on_hover_text("눌러서 Checker 창(결과 목록과 텍스트 편집)을 연다")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
 }

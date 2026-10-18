@@ -1,6 +1,7 @@
 //! 화면에 무엇을 보여줄지 정하는 순수 로직(egui 무관, 단위 테스트 대상).
 //! UI 패널(`ui/`)은 여기서 만든 값을 그리기만 한다.
 
+pub mod checker;
 pub mod context;
 pub mod derive;
 pub mod nav;

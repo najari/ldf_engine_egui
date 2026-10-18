@@ -1,6 +1,7 @@
 //! 앱 본체: 엔진 이벤트 처리, 입력, 패널 배치.
 
 use crate::fonts;
+use crate::ui::checker::CheckerAction;
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
 use crate::view::{self, Selection};
 use eframe::Storage;
@@ -11,7 +12,7 @@ use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 const SETTINGS_KEY: &str = "ldf-studio-settings";
 const MAX_RECENT: usize = 10;
@@ -51,6 +52,9 @@ pub struct StudioApp {
     fatal: Option<String>,
     busy: bool,
     picker: Option<Receiver<Option<Picked>>>,
+    /// 백그라운드 작업(CSV 저장 등)의 결과 메시지.
+    msg_tx: Sender<String>,
+    msg_rx: Receiver<String>,
     title: String,
     /// LDF_STUDIO_PERF=1이면 상태 바에 프레임당 CPU 시간을 보여준다(NFR-01 확인용).
     perf: Option<f32>,
@@ -86,6 +90,7 @@ impl StudioApp {
             egui::ThemePreference::Light
         });
 
+        let (msg_tx, msg_rx) = channel();
         let project = default_project_path();
         let engine = spawn_engine(&cc.egui_ctx, project.clone());
         let mut app = Self {
@@ -99,6 +104,8 @@ impl StudioApp {
             fatal: None,
             busy: false,
             picker: None,
+            msg_tx,
+            msg_rx,
             title: String::new(),
             perf: None,
             show_perf: std::env::var_os("LDF_STUDIO_PERF").is_some(),
@@ -291,9 +298,15 @@ impl StudioApp {
                     });
                 }
             });
+            ui.menu_button("검사", |ui| {
+                if ui.button("Checker 열기").clicked() {
+                    self.st.checker.open = true;
+                    ui.close();
+                }
+            });
             ui.menu_button("도움말", |ui| {
                 ui.label("LDF Studio — LIN Description File 뷰어·편집기");
-                ui.weak("M1: 읽기 전용 뷰어");
+                ui.weak("M1 뷰어 + M2 Checker");
                 if let Some(p) = &self.project_path {
                     ui.separator();
                     ui.weak(format!("프로젝트: {}", p.display()));
@@ -307,6 +320,9 @@ impl StudioApp {
         ui.horizontal(|ui| {
             if ui.button("LDF 열기").clicked() {
                 self.pick(&ctx, false);
+            }
+            if ui.button("Checker").clicked() {
+                self.st.checker.open = true;
             }
             ui.separator();
             ui.toggle_value(&mut self.settings.hex, "hex")
@@ -390,6 +406,52 @@ impl StudioApp {
                     }
                 }
             });
+        });
+    }
+
+    fn checker_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
+        match crate::ui::checker::show(ctx, snap, &mut self.st.checker) {
+            Some(CheckerAction::RunChecks(text)) => {
+                if text == snap.source {
+                    self.notice = Some("변경한 내용이 없다".to_owned());
+                    return;
+                }
+                let name = snap
+                    .revision
+                    .source_name
+                    .clone()
+                    .unwrap_or_else(|| snap.revision.label.clone());
+                self.busy = true;
+                self.send(Command::ApplyText {
+                    name,
+                    text,
+                    encoding: snap.revision.encoding.clone(),
+                    parent: Some(snap.revision.id),
+                });
+            }
+            Some(CheckerAction::SaveCsv(bytes)) => self.save_csv(ctx, bytes),
+            None => {}
+        }
+    }
+
+    /// 보고서를 CSV로 저장한다. 파일 대화상자는 별도 스레드에서 띄운다.
+    fn save_csv(&mut self, ctx: &egui::Context, bytes: Vec<u8>) {
+        let tx = self.msg_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let picked = rfd::FileDialog::new()
+                .add_filter("CSV", &["csv"])
+                .set_file_name("check-report.csv")
+                .set_title("검사 보고서 저장")
+                .save_file();
+            if let Some(path) = picked {
+                let msg = match std::fs::write(&path, bytes) {
+                    Ok(()) => format!("보고서를 저장했다: {}", path.display()),
+                    Err(e) => format!("보고서를 저장하지 못했다: {e}"),
+                };
+                let _ = tx.send(msg);
+                ctx.request_repaint();
+            }
         });
     }
 
@@ -501,6 +563,9 @@ impl eframe::App for StudioApp {
         let ctx = ui.ctx().clone();
         self.poll_engine(&ctx);
         self.poll_picker();
+        while let Ok(m) = self.msg_rx.try_recv() {
+            self.notice = Some(m);
+        }
         self.handle_input(ui);
 
         egui::Panel::top("menu").show(ui, |ui| {
@@ -510,14 +575,19 @@ impl eframe::App for StudioApp {
         self.notice_bar(ui);
 
         let snap = self.snapshot.clone();
+        let mut open_checker = false;
         egui::Panel::bottom("status").show(ui, |ui| {
-            status::show(ui, snap.as_deref(), self.busy, self.perf);
+            open_checker = status::show(ui, snap.as_deref(), self.busy, self.perf);
         });
+        if open_checker {
+            self.st.checker.open = true;
+        }
 
         if let Some(msg) = self.fatal.clone() {
             self.fatal_screen(ui, &msg);
         } else if let Some(snap) = snap {
             self.main_view(ui, &snap);
+            self.checker_window(&ctx, &snap);
         } else {
             self.welcome(ui);
         }
