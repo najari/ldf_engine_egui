@@ -24,3 +24,6 @@ desktop.ini
 /fuzz/Cargo.lock
 /fuzz/corpus/*/*
 !/fuzz/corpus/parse/seed.ldf
+
+# 배포 산출물
+/dist/

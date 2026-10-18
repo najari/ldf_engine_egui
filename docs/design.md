@@ -418,5 +418,11 @@ UI가 보내는 것은 항상 `Command` 하나, 돌아오는 것은 항상 새 �
 | 시그널 길이 등에 `CHECK` 범위 | 범위 `CHECK` 없음 | 깨진 LDF도 손실 없이 저장해야 한다. 범위는 검사 규칙(03xx)이 잡는다. |
 | 해석되지 않은 참조는 `unresolved_ref` 표 | 참조 컬럼 쌍 `*_idx` / `*_name` | 이름만 보관하는 쪽이 단순하고 손실이 없다. |
 | 프레임 ID `u8`, 신호 길이 `u16` | `u32` | 범위를 벗어난 값도 모델에 담아 규칙이 진단하게 한다. |
-| 이벤트는 `Loaded`/`Changed` | `Loaded`(임포트·열기·ApplyText) | 편집(M3) 전이라 `Changed`는 아직 없다. |
+| 이벤트는 `Loaded`/`Changed` | `Loaded`(임포트·열기), `Edited`(편집·Undo·Redo·재검사), `Saved`, `Diffed`, `RevisionDeleted`, `Exported`/`ExportBlocked`, `RuleSettings` | 열린 리비전이 그대로인 갱신(`Edited`)은 선택·트리 같은 화면 상태를 유지해야 해서 `Loaded`와 나눴다. |
+| `EditOp::apply(&mut Tx) -> InverseOp`, 역연산 스택 | 이름으로 대상을 가리키는 `EditOp::apply(&mut LdfModel)`(전부 적용하거나 전혀 적용하지 않음). Undo/Redo는 편집 전후의 **텍스트**를 쌓는다 | 편집한 모델을 텍스트로 써 다시 읽으므로 스냅샷의 위치·진단이 항상 맞고, 되돌리면 그 텍스트를 다시 읽은 것과 같아 모든 연산에서 대칭이 증명 없이 보장된다. 100단계 이상, 총 128MB 상한. |
+| 삭제는 ID로 | 삭제는 이름으로, 참조를 정리하고 뒤 ID를 당긴다(`Arena::remove`) | 대화상자가 방금 만든 객체를 같은 `Batch` 안에서 이름으로 이어 쓸 수 있다. |
+| 새 객체는 arena 끝에 | 새 프레임·시그널은 다시 읽었을 때와 같은 위치(자기 종류 섹션의 끝)에 끼운다(`Arena::insert`) | 속성 시험이 편집한 모델과 왕복한 모델의 ID 순서 불일치를 찾아냈다. 같은 순서면 ID가 안정적이다. |
+| 편집 뒤 영향받는 규칙만 재검사(증분) | 편집마다 전체를 다시 검사 | 시그널 500개 LDF에서 3.5 ms(릴리스)라 200 ms 기준을 크게 밑돈다. 결과는 항상 전체 검사와 같다. |
+| 규칙은 `Rule` 트레이트가 코드를 내고 설정은 UI가 | `RuleSettings`(끄기·심각도)를 프로젝트 DB(`rule_setting`)에 저장하고 엔진이 적용 | 같은 `.ldfdb`를 다른 PC에서 열어도 유지된다. 리비전을 열 때 규칙 결과는 저장된 진단이 아니라 지금 설정으로 다시 낸다. |
+| 내보내기는 항상 모델에서 다시 씀 | 편집하지 않았고 버전을 바꾸지 않으면 원문을 그대로 쓴다. 편집한 모델은 파일 머리말 주석(`Header::leading_comment`)만 되살린다 | 주석·서식 보존(FR-EXP-03)을 가장 싸게 만족한다. Vector TestFiles 132개가 바이트 동일. |
 | 의존성 라이선스는 MIT/Apache/BSD/Zlib/Unicode | egui 기본 글꼴 크레이트(`epaint_default_fonts`)에 한해 OFL-1.1, Ubuntu-font-1.0 허용 | 글꼴 파일에만 해당하는 허용형 라이선스. `deny.toml`에 예외로 명시. |
