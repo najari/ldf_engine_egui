@@ -10,6 +10,7 @@
 mod arena;
 mod lower;
 mod protocol;
+mod semantic;
 mod types;
 
 pub use arena::{Arena, ArenaId, EncodingId, FrameId, NodeId, ScheduleId, SignalId};
@@ -19,6 +20,7 @@ pub use protocol::{
     classic_checksum, enhanced_checksum, frame_bits_nominal, frame_time_max_ms,
     frame_time_nominal_ms, pid_is_valid, protected_id,
 };
+pub use semantic::{semantic_diff, semantically_equal};
 pub use types::*;
 
 #[cfg(test)]

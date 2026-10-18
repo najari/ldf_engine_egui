@@ -489,7 +489,7 @@ impl<'s> Lowerer<'s> {
 
     // ---- Signals ---------------------------------------------------------------------------
 
-    fn init_value(&mut self, g: Option<&&[Elem]>, span: Span) -> InitValue {
+    fn init_value(&mut self, g: Option<&&[Elem]>, span: Span, signal: &str) -> InitValue {
         let src = self.src;
         match g.copied() {
             None => InitValue::Scalar(0),
@@ -501,11 +501,20 @@ impl<'s> Lowerer<'s> {
                         .and_then(|v| u8::try_from(v).ok())
                     {
                         Some(v) => bytes.push(v),
-                        None => self.diags.push(Diagnostic::error(
-                            codes::VALUE_OUT_OF_RANGE,
-                            span,
-                            "바이트 배열 초기값은 0–255여야 한다",
-                        )),
+                        None => {
+                            self.diags.push(Diagnostic::error(
+                                codes::VALUE_OUT_OF_RANGE,
+                                span,
+                                "바이트 배열 초기값은 0–255여야 한다",
+                            ));
+                            // 버려진 값은 검사 규칙(Format 0107)이 알 수 있게 기록한다
+                            self.model.notes.push(LowerNote {
+                                kind: NoteKind::ByteInitOutOfRange,
+                                name: signal.to_owned(),
+                                detail: String::new(),
+                                span: Some(span),
+                            });
+                        }
                     }
                 }
                 InitValue::Array(bytes)
@@ -547,7 +556,7 @@ impl<'s> Lowerer<'s> {
             let name = e.name.span.text(src).to_owned();
             let groups = split_commas(e.rest);
             let size_bits = self.need_uint(groups.first(), e.span, "시그널 길이");
-            let init = self.init_value(groups.get(1), e.span);
+            let init = self.init_value(groups.get(1), e.span, &name);
             let (publisher, subscribers) = if kind == SignalKind::Normal {
                 let publisher = self
                     .need_name(groups.get(2), e.span, "발행자")
@@ -881,7 +890,24 @@ impl<'s> Lowerer<'s> {
                 .filter_map(|g| uint(src, g))
                 .collect()
         };
+        // 숫자여야 하는 인자가 숫자가 아니면 타입 있는 형태로 담지 못한다(원문을 그대로 보관한다)
+        let all_numeric = |from: usize| args.iter().skip(from).all(|g| uint(src, g).is_some());
+        // LIN 2.0 형식 `AssignNAD { nad, supplier, function, new_nad }`은 노드 이름이 아니라 숫자다
+        let legacy_assign_nad =
+            args.len() > 1 || args.first().is_some_and(|g| ident(src, g).is_none());
         let entry = match (name, block.is_some()) {
+            ("AssignNAD", true) if legacy_assign_nad => {
+                SlotEntry::Unknown(stmt.span.text(src).to_owned())
+            }
+            ("ConditionalChangeNAD" | "FreeFormat", true) if !all_numeric(0) => {
+                SlotEntry::Unknown(stmt.span.text(src).to_owned())
+            }
+            ("DataDump", true) if !all_numeric(1) => {
+                SlotEntry::Unknown(stmt.span.text(src).to_owned())
+            }
+            ("AssignFrameIdRange", true) if !all_numeric(1) => {
+                SlotEntry::Unknown(stmt.span.text(src).to_owned())
+            }
             ("AssignNAD", true) => SlotEntry::AssignNad {
                 node: unresolved(name_at(0)),
             },
@@ -1015,11 +1041,21 @@ impl<'s> Lowerer<'s> {
                             sig.encodings.push(unresolved(enc));
                         }
                     }
-                    None => self.diags.push(Diagnostic::warning(
-                        codes::UNRESOLVED_REPRESENTATION,
-                        e.span,
-                        format!("Signal_representation: 시그널 `{sig_name}`이 없어 항목을 버렸다"),
-                    )),
+                    None => {
+                        self.diags.push(Diagnostic::warning(
+                            codes::UNRESOLVED_REPRESENTATION,
+                            e.span,
+                            format!(
+                                "Signal_representation: 시그널 `{sig_name}`이 없어 항목을 버렸다"
+                            ),
+                        ));
+                        self.model.notes.push(LowerNote {
+                            kind: NoteKind::UnknownRepresentationSignal,
+                            name: enc.to_owned(),
+                            detail: sig_name.to_owned(),
+                            span: Some(e.span),
+                        });
+                    }
                 }
             }
         }

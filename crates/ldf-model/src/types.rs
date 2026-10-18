@@ -403,6 +403,29 @@ pub struct RawSection {
     pub span: Option<Span>,
 }
 
+/// 변환(lowering) 중 모델에 담을 수 없었지만 검사 규칙이 필요로 하는 사실의 종류.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NoteKind {
+    /// `Signal_representation`이 존재하지 않는 시그널을 가리켜 그 항목을 버렸다.
+    /// `name`은 인코딩 타입 이름, `detail`은 없는 시그널 이름.
+    UnknownRepresentationSignal,
+    /// 바이트 배열 초기값에 0–255를 벗어난 값이 있어 그 값을 버렸다. `name`은 시그널 이름.
+    ByteInitOutOfRange,
+}
+
+/// 변환 중 버려진 정보의 기록. 모델에서 사라졌지만 `ldf-check`가 진단해야 하는 항목이다.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LowerNote {
+    /// 종류.
+    pub kind: NoteKind,
+    /// 주 대상 이름(종류별로 정의).
+    pub name: String,
+    /// 보조 정보(종류별로 정의).
+    pub detail: String,
+    /// 원문 위치.
+    pub span: Option<Span>,
+}
+
 /// LDF 모델 전체.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LdfModel {
@@ -424,4 +447,7 @@ pub struct LdfModel {
     pub unknown_sections: Vec<RawSection>,
     /// 원문의 최상위 문장 순서(왕복 출력용).
     pub section_order: Vec<String>,
+    /// 변환 중 모델에 담지 못한 사실(검사용). 이전 버전으로 저장된 모델에는 없다.
+    #[serde(default)]
+    pub notes: Vec<LowerNote>,
 }

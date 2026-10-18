@@ -1,6 +1,6 @@
 [package]
 name = "ldf-writer"
-description = "Model -> LDF 텍스트 (버전별 포맷터)"
+description = "Model -> LDF 텍스트 (버전별 포맷터, 원자적 쓰기)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

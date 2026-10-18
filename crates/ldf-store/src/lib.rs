@@ -13,7 +13,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use rusqlite_migration::{M, Migrations};
 use std::path::Path;
 
-static MIGRATION_LIST: &[M<'static>] = &[M::up(include_str!("../migrations/0001_init.sql"))];
+static MIGRATION_LIST: &[M<'static>] = &[
+    M::up(include_str!("../migrations/0001_init.sql")),
+    M::up(include_str!("../migrations/0002_lower_notes.sql")),
+];
 static MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
 /// 새 리비전으로 저장할 내용.
