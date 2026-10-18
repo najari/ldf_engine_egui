@@ -46,7 +46,7 @@ pub enum Event {
         snapshot: Arc<ModelSnapshot>,
         /// 갱신된 리비전 목록.
         revisions: Vec<RevisionInfo>,
-        /// 같은 내용의 기존 리비전을 열었는지.
+        /// 임포트한 내용이 이미 있어 새 리비전을 만들지 않고 기존 것을 열었는지(OpenRevision은 항상 alse).
         reused: bool,
     },
     /// 리비전 목록만 갱신되었다.
@@ -197,7 +197,7 @@ fn handle(session: &mut Session, cmd: Command) -> Result<Vec<Event>> {
             Ok(vec![Event::Loaded {
                 snapshot,
                 revisions: session.revisions()?,
-                reused: true,
+                reused: false,
             }])
         }
         Command::RefreshRevisions => Ok(vec![Event::Revisions(session.revisions()?)]),
@@ -310,7 +310,7 @@ mod tests {
         else {
             panic!("loaded")
         };
-        assert!(reused);
+        assert!(!reused, "리비전을 직접 여는 것은 중복 임포트가 아니다");
         assert_eq!(again.revision.id, id);
         assert!(again.version > snapshot.version);
 

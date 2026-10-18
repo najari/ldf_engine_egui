@@ -268,6 +268,56 @@ mod tests {
         s.check_integrity().expect("integrity");
     }
 
+    /// 프레임 `n`개짜리 LDF를 만든다(프레임당 시그널 2개).
+    fn synthetic_ldf(n: usize) -> String {
+        let mut s = String::from(
+            "LIN_description_file;\nLIN_protocol_version = \"2.1\";\n\
+             LIN_language_version = \"2.1\";\nLIN_speed = 19.2 kbps;\n\
+             Nodes { Master: GW, 5 ms, 0.1 ms; Slaves: N1, N2, N3, N4; }\nSignals {\n",
+        );
+        for i in 0..n * 2 {
+            s.push_str(&format!("  Sig_{i}: 8, 0, N{}, GW;\n", (i / 2) % 4 + 1));
+        }
+        s.push_str("}\nFrames {\n");
+        for j in 0..n {
+            s.push_str(&format!(
+                "  F_{j}: {}, N{}, 2 {{ Sig_{}, 0; Sig_{}, 8; }}\n",
+                j % 60,
+                j % 4 + 1,
+                2 * j,
+                2 * j + 1
+            ));
+        }
+        s.push_str("}\nSchedule_tables {\n  T {\n");
+        for j in 0..n.min(500) {
+            s.push_str(&format!("    F_{j} delay 10 ms;\n"));
+        }
+        s.push_str("  }\n}\n");
+        s
+    }
+
+    /// NFR-01: 100 KB LDF 임포트(+ 저장) 1초 이내. 릴리스 빌드 기준이라 평소에는 건너뛴다.
+    /// 실행: `cargo test --release -p ldf-engine -- --ignored --nocapture`
+    #[test]
+    #[ignore = "성능 측정: 릴리스 빌드에서 --ignored 로 실행"]
+    fn import_of_a_100kb_file_takes_under_a_second() {
+        let ldf = synthetic_ldf(900);
+        assert!(ldf.len() > 90_000, "{} bytes", ldf.len());
+        let mut s = Session::open_in_memory().expect("session");
+        let t = std::time::Instant::now();
+        let out = s.import_bytes("big.ldf", ldf.as_bytes()).expect("import");
+        let elapsed = t.elapsed();
+        eprintln!("{} KB 임포트: {elapsed:?}", ldf.len() / 1024);
+        assert_eq!(out.snapshot.model.frames.len(), 900);
+        assert!(elapsed < std::time::Duration::from_secs(1), "{elapsed:?}");
+
+        // 5천 프레임(약 550 KB)도 같이 보고한다
+        let big = synthetic_ldf(5000);
+        let t = std::time::Instant::now();
+        s.import_bytes("huge.ldf", big.as_bytes()).expect("import");
+        eprintln!("{} KB 임포트: {:?}", big.len() / 1024, t.elapsed());
+    }
+
     #[test]
     fn missing_file_is_an_io_error() {
         let mut s = Session::open_in_memory().expect("session");

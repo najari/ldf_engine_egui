@@ -9,6 +9,16 @@ publish.workspace = true
 [dependencies]
 ldf-engine.workspace = true
 ldf-model.workspace = true
+eframe = { workspace = true, features = ["persistence"] }
+egui.workspace = true
+egui_extras.workspace = true
+egui_ltreeview.workspace = true
+rfd.workspace = true
+serde.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
