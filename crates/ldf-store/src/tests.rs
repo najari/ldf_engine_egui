@@ -258,3 +258,58 @@ fn frame_kinds_round_trip() {
         .collect();
     assert_eq!(kinds, ["u", "u", "u", "s", "e", "d", "d"]);
 }
+
+#[test]
+fn rule_settings_persist_in_the_project_file() {
+    let dir = std::env::temp_dir().join(format!("ldfstore-rules-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("p.ldfdb");
+    {
+        let store = Store::open(&path).expect("open");
+        let project = store.ensure_project("p").expect("project");
+        assert!(store.rule_settings(project).expect("list").is_empty());
+        let off = crate::RuleSettingRow {
+            code: 406,
+            enabled: false,
+            severity: None,
+        };
+        let sev = crate::RuleSettingRow {
+            code: 301,
+            enabled: true,
+            severity: Some("info".into()),
+        };
+        store.set_rule_setting(project, &off).expect("set");
+        store.set_rule_setting(project, &sev).expect("set");
+        // 같은 코드를 다시 저장하면 바뀐다
+        store
+            .set_rule_setting(
+                project,
+                &crate::RuleSettingRow {
+                    code: 406,
+                    enabled: true,
+                    severity: Some("error".into()),
+                },
+            )
+            .expect("set");
+    }
+    // 다시 열어도(다른 PC에서 파일을 열어도) 유지된다
+    let store = Store::open(&path).expect("reopen");
+    let project = store.ensure_project("p").expect("project");
+    let rows = store.rule_settings(project).expect("list");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].code, 301);
+    assert_eq!(
+        rows[1],
+        crate::RuleSettingRow {
+            code: 406,
+            enabled: true,
+            severity: Some("error".into())
+        }
+    );
+    store.clear_rule_setting(project, 301).expect("clear");
+    assert_eq!(store.rule_settings(project).expect("list").len(), 1);
+    store.check_integrity().expect("integrity");
+    drop(store);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -17,6 +17,7 @@ static MIGRATION_LIST: &[M<'static>] = &[
     M::up(include_str!("../migrations/0001_init.sql")),
     M::up(include_str!("../migrations/0002_lower_notes.sql")),
     M::up(include_str!("../migrations/0003_leading_comment.sql")),
+    M::up(include_str!("../migrations/0004_rule_setting.sql")),
 ];
 static MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -61,6 +62,17 @@ pub struct RevisionInfo {
     pub speed_bps: Option<u32>,
     /// 원본 문자 인코딩.
     pub encoding: String,
+}
+
+/// 규칙 설정 한 줄(기본값과 다른 것만 저장한다).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleSettingRow {
+    /// 규칙 번호.
+    pub code: u16,
+    /// 켜져 있는지.
+    pub enabled: bool,
+    /// 바꾼 심각도("info"·"warning"·"error"). `None`이면 기본.
+    pub severity: Option<String>,
 }
 
 /// DB에서 복원한 리비전.
@@ -163,6 +175,40 @@ impl Store {
         if n == 0 {
             return Err(StoreError::NotFound(format!("리비전 {id}")));
         }
+        Ok(())
+    }
+
+    /// 프로젝트의 규칙 설정(코드 순).
+    pub fn rule_settings(&self, project_id: i64) -> Result<Vec<RuleSettingRow>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT code, enabled, severity FROM rule_setting WHERE project_id = ?1 ORDER BY code",
+        )?;
+        let rows = st.query_map(params![project_id], |r| {
+            Ok(RuleSettingRow {
+                code: r.get::<_, u16>(0)?,
+                enabled: r.get::<_, bool>(1)?,
+                severity: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// 규칙 설정 한 줄을 저장한다(있으면 바꾼다).
+    pub fn set_rule_setting(&self, project_id: i64, row: &RuleSettingRow) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO rule_setting (project_id, code, enabled, severity) VALUES (?1, ?2, ?3, ?4) 
+             ON CONFLICT(project_id, code) DO UPDATE SET enabled = ?3, severity = ?4",
+            params![project_id, row.code, row.enabled, row.severity],
+        )?;
+        Ok(())
+    }
+
+    /// 규칙 설정을 기본값으로 되돌린다(행을 지운다).
+    pub fn clear_rule_setting(&self, project_id: i64, code: u16) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM rule_setting WHERE project_id = ?1 AND code = ?2",
+            params![project_id, code],
+        )?;
         Ok(())
     }
 

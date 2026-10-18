@@ -10,7 +10,9 @@ use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
-use ldf_engine::{Command, EditOp, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo};
+use ldf_engine::{
+    Command, EditOp, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo, RuleSettings,
+};
 use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -83,6 +85,8 @@ pub struct StudioApp {
     allow_close: bool,
     /// 이벤트 처리 밖(동작 수행)에서 창 명령을 보내기 위한 핸들.
     ctx: Option<egui::Context>,
+    /// 프로젝트의 규칙 설정.
+    rules: RuleSettings,
 }
 
 /// 새로 만들 수 있는 객체 종류.
@@ -164,6 +168,7 @@ impl StudioApp {
             after_save: None,
             allow_close: false,
             ctx: Some(cc.egui_ctx.clone()),
+            rules: RuleSettings::default(),
         };
         if let Some(arg) = std::env::args_os().nth(1) {
             app.import(PathBuf::from(arg));
@@ -421,9 +426,14 @@ impl StudioApp {
     fn poll_engine(&mut self, ctx: &egui::Context) {
         while let Some(ev) = self.engine.try_recv() {
             match ev {
-                Event::ProjectOpened { path, revisions } => {
+                Event::ProjectOpened {
+                    path,
+                    revisions,
+                    rules,
+                } => {
                     self.project_path = path;
                     self.revisions = revisions;
+                    self.rules = rules;
                 }
                 Event::Loaded {
                     snapshot,
@@ -442,6 +452,7 @@ impl StudioApp {
                     self.snapshot = Some(snapshot);
                 }
                 Event::Revisions(r) => self.revisions = r,
+                Event::RuleSettings(rules) => self.rules = rules,
                 Event::Edited(snapshot) => {
                     self.busy = false;
                     self.adopt_edit(ctx, snapshot);
@@ -829,7 +840,7 @@ impl StudioApp {
     }
 
     fn checker_window(&mut self, ctx: &egui::Context, snap: &Arc<ModelSnapshot>) {
-        match crate::ui::checker::show(ctx, snap, &mut self.st.checker) {
+        match crate::ui::checker::show(ctx, snap, &self.rules, &mut self.st.checker) {
             Some(CheckerAction::RunChecks(text)) => {
                 if text == snap.source {
                     self.notice = Some("변경한 내용이 없다".to_owned());
@@ -849,6 +860,13 @@ impl StudioApp {
                 });
             }
             Some(CheckerAction::SaveCsv(bytes)) => self.save_csv(ctx, bytes),
+            Some(CheckerAction::SetRule { code, setting }) => {
+                self.send(Command::SetRule {
+                    code,
+                    enabled: setting.enabled,
+                    severity: setting.severity,
+                });
+            }
             None => {}
         }
     }

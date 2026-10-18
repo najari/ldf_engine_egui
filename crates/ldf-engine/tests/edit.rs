@@ -325,3 +325,55 @@ fn exporting_the_open_snapshot_includes_unsaved_edits() {
     assert!(s.undo(&edited).is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 시그널 500개짜리 LDF를 만든다(프레임 125개, 슬레이브 20개).
+fn big_ldf() -> String {
+    let mut s = String::from(
+        "LIN_description_file;\nLIN_protocol_version = \"2.1\";\nLIN_language_version = \"2.1\";\nLIN_speed = 19.2 kbps;\n",
+    );
+    let slaves: Vec<String> = (0..20).map(|i| format!("S{i}")).collect();
+    s.push_str(&format!(
+        "Nodes {{ Master: M, 1 ms, 0 ms; Slaves: {}; }}\n",
+        slaves.join(", ")
+    ));
+    s.push_str("Signals {\n");
+    for i in 0..500 {
+        s.push_str(&format!("  Sig{i}: 8, 0, M, {};\n", slaves[i % 20]));
+    }
+    s.push_str("}\nFrames {\n");
+    for f in 0..125 {
+        s.push_str(&format!("  Fr{f}: {}, M, 4 {{ ", f % 60));
+        for k in 0..4 {
+            s.push_str(&format!("Sig{}, {}; ", f * 4 + k, k * 8));
+        }
+        s.push_str("}\n");
+    }
+    s.push_str("}\nSchedule_tables { T { ");
+    for f in 0..125 {
+        s.push_str(&format!("Fr{f} delay 10 ms; "));
+    }
+    s.push_str("} }\n");
+    s
+}
+
+/// FR-CHK-09: 시그널 500개 LDF에서 편집 뒤 결과가 200 ms 안에 갱신된다. 편집마다 전체를 다시 검사하므로 결과는 항상 전체 검사와 같다.
+/// 속도는 최적화 빌드에서만 의미가 있으므로 `cargo test --release -p ldf-engine --test edit -- --ignored`로 잰다.
+#[test]
+#[ignore = "릴리스 빌드에서 속도를 잰다"]
+fn editing_a_500_signal_file_updates_results_within_200_ms() {
+    let mut s = Session::open_in_memory().expect("session");
+    let base = s
+        .import_bytes("big.ldf", big_ldf().as_bytes())
+        .expect("import")
+        .snapshot;
+    assert_eq!(base.model.signals.len(), 500);
+    let mut worst = std::time::Duration::ZERO;
+    let mut snap = base;
+    for i in 0..10 {
+        let started = std::time::Instant::now();
+        snap = s.edit(&snap, &EditOp::SetSpeed(10_000 + i)).expect("edit");
+        worst = worst.max(started.elapsed());
+    }
+    eprintln!("최악 편집 시간 {worst:?}");
+    assert!(worst < std::time::Duration::from_millis(200), "{worst:?}");
+}

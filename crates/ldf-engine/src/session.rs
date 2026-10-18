@@ -1,10 +1,11 @@
 //! 동기 세션: 프로젝트 DB 하나와 그 위의 임포트·열기. 워커 스레드, CLI, 테스트가 함께 쓴다.
 
-use crate::analysis::{analyze, analyze_text};
+use crate::analysis::{analyze_text_with, analyze_with};
 use crate::decode;
 use crate::error::{EngineError, Result};
-use ldf_model::{Diagnostic, EditOp, LdfModel, LineIndex};
-use ldf_store::{NewRevision, RevisionInfo, Store, StoredRevision};
+use ldf_check::{RuleSetting, RuleSettings, run_all_with};
+use ldf_model::{Diagnostic, EditOp, LdfModel, LineIndex, Severity};
+use ldf_store::{NewRevision, RevisionInfo, RuleSettingRow, Store, StoredRevision};
 use ldf_writer::{Eol, WriteOptions, write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -55,6 +56,8 @@ pub struct Session {
     path: Option<PathBuf>,
     version: u64,
     working: Option<Working>,
+    /// 프로젝트의 규칙 설정(FR-CHK-06).
+    rules: RuleSettings,
 }
 
 /// 편집 중인 상태. Undo/Redo는 편집 전후의 텍스트를 보관해 처리한다: 되돌린 결과는 그 텍스트를 다시 읽은 것과 같고,
@@ -86,12 +89,14 @@ impl Session {
         }
         let store = Store::open(path)?;
         let project_id = store.ensure_project("LDF 프로젝트")?;
+        let rules = load_rules(&store, project_id)?;
         Ok(Self {
             store,
             project_id,
             path: Some(path.to_owned()),
             version: 0,
             working: None,
+            rules,
         })
     }
 
@@ -99,12 +104,14 @@ impl Session {
     pub fn open_in_memory() -> Result<Self> {
         let store = Store::open_in_memory()?;
         let project_id = store.ensure_project("LDF 프로젝트")?;
+        let rules = load_rules(&store, project_id)?;
         Ok(Self {
             store,
             project_id,
             path: None,
             version: 0,
             working: None,
+            rules,
         })
     }
 
@@ -167,7 +174,7 @@ impl Session {
             });
         }
 
-        let analysis = analyze(bytes);
+        let analysis = analyze_with(bytes, &self.rules);
         let parent_id = match parent {
             Some(p) => p,
             None => self
@@ -203,6 +210,10 @@ impl Session {
             source,
         } = self.store.load_revision(id)?;
         let text = decode::decode(&source, &info.encoding);
+        // 저장된 진단 중 파서·변환(9xxx)만 쓰고, 규칙 결과는 지금의 규칙 설정으로 다시 낸다
+        let mut diagnostics: Vec<Diagnostic> =
+            diagnostics.into_iter().filter(|d| d.code >= 9000).collect();
+        diagnostics.extend(run_all_with(&model, &self.rules));
         self.version += 1;
         Ok(ModelSnapshot {
             version: self.version,
@@ -255,7 +266,7 @@ impl Session {
             decode::UTF8_BOM => decode::UTF8_BOM,
             _ => decode::UTF8,
         };
-        let analysis = analyze_text(text, encoding);
+        let analysis = analyze_text_with(text, encoding, &self.rules);
         self.version += 1;
         let (dirty, can_undo, can_redo) =
             self.working.as_ref().map_or((false, false, false), |w| {
@@ -342,10 +353,65 @@ impl Session {
         Ok(out)
     }
 
+    /// 지금의 규칙 설정.
+    pub fn rule_settings(&self) -> &RuleSettings {
+        &self.rules
+    }
+
+    /// 규칙 설정을 바꾸고 프로젝트에 저장한다. 기본값으로 돌아오면 저장된 행을 지운다.
+    pub fn set_rule_setting(&mut self, code: u16, setting: RuleSetting) -> Result<()> {
+        if setting == RuleSetting::default() {
+            self.store.clear_rule_setting(self.project_id, code)?;
+        } else {
+            let row = RuleSettingRow {
+                code,
+                enabled: setting.enabled,
+                severity: setting.severity.map(severity_name),
+            };
+            self.store.set_rule_setting(self.project_id, &row)?;
+        }
+        self.rules.set(code, setting);
+        Ok(())
+    }
+
+    /// 열려 있는 스냅샷을 지금의 규칙 설정으로 다시 검사한다(텍스트와 편집 상태는 그대로).
+    pub fn recheck(&mut self, snap: &ModelSnapshot) -> Arc<ModelSnapshot> {
+        self.snapshot_from_text(snap, snap.source.clone())
+    }
+
     /// 저장소 무결성 검사.
     pub fn check_integrity(&self) -> Result<()> {
         Ok(self.store.check_integrity()?)
     }
+}
+
+fn severity_name(s: Severity) -> String {
+    match s {
+        Severity::Info => "info",
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+    .to_owned()
+}
+
+fn load_rules(store: &Store, project_id: i64) -> Result<RuleSettings> {
+    let mut rules = RuleSettings::default();
+    for row in store.rule_settings(project_id)? {
+        let severity = match row.severity.as_deref() {
+            Some("info") => Some(Severity::Info),
+            Some("warning") => Some(Severity::Warning),
+            Some("error") => Some(Severity::Error),
+            _ => None,
+        };
+        rules.set(
+            row.code,
+            RuleSetting {
+                enabled: row.enabled,
+                severity,
+            },
+        );
+    }
+    Ok(rules)
 }
 
 /// `working_for`가 방금 값을 채웠으므로 비어 있을 수 없지만, 패닉하지 않고 새로 만든다.

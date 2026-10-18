@@ -4,7 +4,8 @@ use crate::error::{EngineError, Result};
 use crate::export::{ExportOptions, ExportReport};
 use crate::session::{ModelSnapshot, Session};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use ldf_model::EditOp;
+use ldf_check::{RuleSetting, RuleSettings};
+use ldf_model::{EditOp, Severity};
 use ldf_store::RevisionInfo;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -49,6 +50,15 @@ pub enum Command {
     Redo,
     /// 편집한 내용을 새 리비전으로 저장한다.
     SaveEdits,
+    /// 규칙을 켜고 끄거나 심각도를 바꾼다(FR-CHK-06). 프로젝트에 저장하고 열린 파일을 다시 검사한다.
+    SetRule {
+        /// 규칙 번호.
+        code: u16,
+        /// 켜져 있는지.
+        enabled: bool,
+        /// 바꿀 심각도(`None`이면 기본).
+        severity: Option<Severity>,
+    },
     /// 리비전을 LDF 파일로 내보낸다(FR-EXP).
     Export {
         /// 내보낼 리비전.
@@ -69,6 +79,8 @@ pub enum Event {
         path: Option<PathBuf>,
         /// 리비전 목록.
         revisions: Vec<RevisionInfo>,
+        /// 프로젝트의 규칙 설정.
+        rules: RuleSettings,
     },
     /// 새 스냅샷이 준비되었다.
     Loaded {
@@ -88,6 +100,8 @@ pub enum Event {
         /// 갱신된 리비전 목록.
         revisions: Vec<RevisionInfo>,
     },
+    /// 규칙 설정이 바뀌었다.
+    RuleSettings(RuleSettings),
     /// 리비전 목록만 갱신되었다.
     Revisions(Vec<RevisionInfo>),
     /// 내보내기를 마쳤다.
@@ -212,6 +226,7 @@ fn run(
     send(Event::ProjectOpened {
         path: session.path().map(ToOwned::to_owned),
         revisions: session.revisions().unwrap_or_default(),
+        rules: session.rule_settings().clone(),
     });
 
     let mut current: Option<Arc<ModelSnapshot>> = None;
@@ -250,6 +265,7 @@ fn handle(
             Ok(vec![Event::ProjectOpened {
                 path: session.path().map(ToOwned::to_owned),
                 revisions: session.revisions()?,
+                rules: session.rule_settings().clone(),
             }])
         }
         Command::Import(path) => {
@@ -278,6 +294,18 @@ fn handle(
             }])
         }
         Command::RefreshRevisions => Ok(vec![Event::Revisions(session.revisions()?)]),
+        Command::SetRule {
+            code,
+            enabled,
+            severity,
+        } => {
+            session.set_rule_setting(code, RuleSetting { enabled, severity })?;
+            let mut events = vec![Event::RuleSettings(session.rule_settings().clone())];
+            if let Some(snap) = current {
+                events.push(Event::Edited(session.recheck(snap)));
+            }
+            Ok(events)
+        }
         Command::Edit(op) => {
             let snap = open_snapshot(current)?;
             Ok(vec![Event::Edited(session.edit(snap, &op)?)])
@@ -465,7 +493,10 @@ mod tests {
             assert!(matches!(wait(&engine), Event::Loaded { .. }));
         }
         let engine = Engine::spawn(Some(path), || {});
-        let Event::ProjectOpened { path, revisions } = wait(&engine) else {
+        let Event::ProjectOpened {
+            path, revisions, ..
+        } = wait(&engine)
+        else {
             panic!("opened")
         };
         assert!(path.is_some());

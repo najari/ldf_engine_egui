@@ -1,6 +1,7 @@
 //! 분석: 바이트 -> 디코딩 -> 파싱 -> 검사. 세션(임포트)과 CLI가 같은 경로를 쓴다.
 
 use crate::decode;
+use ldf_check::RuleSettings;
 use ldf_model::{Diagnostic, LdfModel};
 
 /// 분석 결과.
@@ -18,16 +19,26 @@ pub struct Analysis {
 
 /// 바이트를 분석한다. 어떤 입력에도 패닉하지 않는다.
 pub fn analyze(bytes: &[u8]) -> Analysis {
+    analyze_with(bytes, &RuleSettings::default())
+}
+
+/// 규칙 설정(끄기·심각도)을 적용해 바이트를 분석한다.
+pub fn analyze_with(bytes: &[u8], rules: &RuleSettings) -> Analysis {
     let (text, encoding) = decode::decode_auto(bytes);
-    analyze_text(text, encoding)
+    analyze_text_with(text, encoding, rules)
 }
 
 /// 이미 디코딩한 텍스트를 분석한다(편집한 텍스트 재검사용).
 pub fn analyze_text(text: String, encoding: &'static str) -> Analysis {
+    analyze_text_with(text, encoding, &RuleSettings::default())
+}
+
+/// 규칙 설정을 적용해 디코딩한 텍스트를 분석한다.
+pub fn analyze_text_with(text: String, encoding: &'static str, rules: &RuleSettings) -> Analysis {
     let mut loaded = ldf_model::load(&text);
     loaded.model.header.encoding = encoding.to_owned();
     let mut diagnostics = loaded.diagnostics;
-    diagnostics.extend(ldf_check::run_all(&loaded.model));
+    diagnostics.extend(ldf_check::run_all_with(&loaded.model, rules));
     Analysis {
         model: loaded.model,
         diagnostics,

@@ -11,12 +11,13 @@ mod export;
 mod session;
 mod worker;
 
-pub use analysis::{Analysis, analyze, analyze_text};
+pub use analysis::{Analysis, analyze, analyze_text, analyze_text_with, analyze_with};
 pub use error::{EngineError, Result};
 pub use export::{ExportOptions, ExportReport};
 pub use session::{ImportOutcome, ModelSnapshot, Session};
 pub use worker::{Command, Engine, Event};
 
+pub use ldf_check::{RuleInfo, RuleSetting, RuleSettings, rule_infos};
 pub use ldf_model::{
     AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft,
 };

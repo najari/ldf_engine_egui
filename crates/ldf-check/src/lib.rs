@@ -8,7 +8,9 @@ mod category;
 mod raw;
 mod registry;
 pub mod rules;
+mod settings;
 mod util;
 
 pub use category::Category;
 pub use registry::{Rule, all_rules, run_all, run_rules};
+pub use settings::{RuleInfo, RuleSetting, RuleSettings, rule_infos, run_all_with};
