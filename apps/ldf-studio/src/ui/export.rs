@@ -54,6 +54,8 @@ pub enum ExportAction {
     Choose(ExportOptions),
     /// 오류를 알고도 내보내기로 했다.
     Retry(Blocked),
+    /// 오류를 먼저 보려고 Checker 창을 연다.
+    OpenChecker,
 }
 
 /// 내보내기 창 상태.
@@ -62,7 +64,7 @@ pub struct ExportState {
     /// 창을 열었는지.
     pub open: bool,
     target: Option<Target>,
-    crlf: bool,
+    eol: Option<Eol>,
     enc: Enc,
     /// 확인 대기 중인 내보내기.
     pub blocked: Option<Blocked>,
@@ -109,8 +111,9 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                         ui.end_row();
                         ui.label("줄바꿈");
                         ui.horizontal(|ui| {
-                            ui.radio_value(&mut st.crlf, true, "CRLF");
-                            ui.radio_value(&mut st.crlf, false, "LF");
+                            ui.radio_value(&mut st.eol, None, "원본과 같게");
+                            ui.radio_value(&mut st.eol, Some(Eol::CrLf), "CRLF");
+                            ui.radio_value(&mut st.eol, Some(Eol::Lf), "LF");
                         });
                         ui.end_row();
                         ui.label("인코딩");
@@ -125,13 +128,17 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                     });
                 if target != Target::Keep {
                     ui.weak("대상 버전에서 허용되지 않는 항목은 빠지고 경고로 알린다.");
+                } else if !snap.dirty {
+                    ui.weak("편집하지 않았으므로 원문(주석·서식 포함)을 그대로 내보낸다.");
+                } else {
+                    ui.weak("편집한 내용은 정규 서식으로 다시 쓴다(파일 머리말 주석만 유지된다).");
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button("파일 선택…").clicked() {
                         action = Some(ExportAction::Choose(ExportOptions {
                             target,
-                            eol: if st.crlf { Eol::CrLf } else { Eol::Lf },
+                            eol: st.eol,
                             encoding: st.enc.name(),
                             allow_errors: false,
                         }));
@@ -158,6 +165,10 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                 ui.horizontal(|ui| {
                     if ui.button("그래도 내보내기").clicked() {
                         action = Some(ExportAction::Retry(b.clone()));
+                        st.blocked = None;
+                    }
+                    if ui.button("Checker 열기").clicked() {
+                        action = Some(ExportAction::OpenChecker);
                         st.blocked = None;
                     }
                     if ui.button("취소").clicked() {

@@ -52,6 +52,9 @@ pub struct Header {
     pub sig_byte_order_big_endian: bool,
     /// 원본 문자 인코딩 이름(`utf-8`, `windows-1252`). 엔진이 채운다.
     pub encoding: String,
+    /// 첫 문장 앞의 주석 블록(파일 머리말). 줄바꿈은 `\n`이고 앞뒤 빈 줄은 없다. 출력할 때 맨 앞에 되살린다.
+    #[serde(default)]
+    pub leading_comment: String,
 }
 
 /// 노드 역할.

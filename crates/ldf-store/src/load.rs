@@ -111,7 +111,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         .query_row(
             "SELECT id, project_id, parent_id, label, source_name, created_at, protocol_ver, \
              language_ver, speed_bps, encoding, has_marker, ldf_file_revision, big_endian, \
-             channel, source_text, section_order, lower_notes \
+             channel, source_text, section_order, lower_notes, leading_comment \
              FROM ldf_revision WHERE id = ?1",
             params![id],
             |r| {
@@ -124,12 +124,22 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
                     r.get::<_, Vec<u8>>(14)?,
                     r.get::<_, String>(15)?,
                     r.get::<_, String>(16)?,
+                    r.get::<_, String>(17)?,
                 ))
             },
         )
         .optional()?;
-    let Some((info, has_marker, ldf_file_revision, big_endian, channel, source, order, notes)) =
-        head
+    let Some((
+        info,
+        has_marker,
+        ldf_file_revision,
+        big_endian,
+        channel,
+        source,
+        order,
+        notes,
+        leading_comment,
+    )) = head
     else {
         return Err(StoreError::NotFound(format!("리비전 {id}")));
     };
@@ -143,6 +153,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
     model.header.ldf_file_revision = ldf_file_revision;
     model.header.sig_byte_order_big_endian = big_endian;
     model.header.encoding = info.encoding.clone();
+    model.header.leading_comment = leading_comment;
     model.section_order = serde_json::from_str(&order)?;
     model.notes = serde_json::from_str(&notes)?;
 

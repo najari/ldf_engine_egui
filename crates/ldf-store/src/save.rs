@@ -56,8 +56,8 @@ pub(crate) fn save(conn: &mut Connection, r: &NewRevision<'_>) -> Result<i64> {
     tx.execute(
         "INSERT INTO ldf_revision (project_id, parent_id, label, source_name, has_marker, \
          protocol_ver, language_ver, speed_bps, channel, ldf_file_revision, big_endian, encoding, \
-         source_hash, source_text, section_order, lower_notes) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         source_hash, source_text, section_order, lower_notes, leading_comment) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             r.project_id,
             r.parent_id,
@@ -79,6 +79,7 @@ pub(crate) fn save(conn: &mut Connection, r: &NewRevision<'_>) -> Result<i64> {
             r.source,
             serde_json::to_string(&m.section_order)?,
             serde_json::to_string(&m.notes)?,
+            h.leading_comment,
         ],
     )?;
     let rev = tx.last_insert_rowid();

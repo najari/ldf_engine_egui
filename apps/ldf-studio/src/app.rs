@@ -893,6 +893,7 @@ impl StudioApp {
                 self.export_pending = Some(options);
                 self.pick_with(ctx, Mode::Export);
             }
+            Some(ExportAction::OpenChecker) => self.st.checker.open = true,
             Some(ExportAction::Retry(b)) => {
                 self.busy = true;
                 let allow = ExportOptions {

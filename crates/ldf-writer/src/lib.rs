@@ -4,7 +4,7 @@
 //! 출력을 다시 읽으면 의미가 같은 모델이 나온다(`ldf_model::semantically_equal`).
 //! 대상 버전에서 허용되지 않는 항목은 빼고 경고로 알려준다(FR-EXP-01).
 //!
-//! 주석과 원래 서식은 보존하지 않는다(FR-EXP-03은 별도 작업).
+//! 파일 머리말 주석은 되살리지만 그 밖의 주석과 원래 서식은 보존하지 않는다. 편집하지 않은 파일은 엔진이 원문을 그대로 내보낸다.
 
 mod atomic;
 mod emit;
@@ -232,6 +232,11 @@ pub fn write(model: &LdfModel, opts: &WriteOptions) -> Written {
     }
 
     let mut header = String::new();
+    // 파일 머리말 주석을 맨 앞에 되살린다
+    if !m.header.leading_comment.is_empty() {
+        header.push_str(&m.header.leading_comment);
+        header.push_str("\n\n");
+    }
     let mut sections: Vec<String> = Vec::new();
     for name in names {
         let in_order = m.section_order.iter().any(|n| n == name);

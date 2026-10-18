@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 pub struct ExportOptions {
     /// 대상 LIN 버전.
     pub target: Target,
-    /// 줄바꿈.
-    pub eol: Eol,
+    /// 줄바꿈. `None`이면 원본과 같게(원본이 CRLF면 CRLF).
+    pub eol: Option<Eol>,
     /// 인코딩 이름(`decode::UTF8` 등). `None`이면 리비전 원본의 인코딩.
     pub encoding: Option<String>,
     /// 오류 진단이 남아 있어도 내보낸다(FR-EXP-04의 확인을 받은 뒤).
@@ -65,22 +65,44 @@ impl Session {
             return Err(EngineError::ExportBlocked { errors });
         }
 
-        let written = write(
-            &snap.model,
-            &WriteOptions {
-                target: opts.target,
-                eol: opts.eol,
-            },
-        );
+        // 편집하지 않았고 버전도 바꾸지 않으면 원문을 그대로 쓴다: 주석과 서식이 모두 남는다(FR-EXP-03).
+        // 줄바꿈만 다르게 고르면 그 부분만 바꾼다.
+        let source_eol = if snap.source.contains("\r\n") {
+            Eol::CrLf
+        } else {
+            Eol::Lf
+        };
+        let (text, warnings) = if !snap.dirty && opts.target == Target::Keep {
+            let text = match opts.eol {
+                Some(eol) if eol != source_eol => {
+                    let lf = snap.source.replace("\r\n", "\n");
+                    match eol {
+                        Eol::Lf => lf,
+                        Eol::CrLf => lf.replace('\n', "\r\n"),
+                    }
+                }
+                _ => snap.source.clone(),
+            };
+            (text, Vec::new())
+        } else {
+            let written = write(
+                &snap.model,
+                &WriteOptions {
+                    target: opts.target,
+                    eol: opts.eol.unwrap_or(source_eol),
+                },
+            );
+            (written.text, written.warnings)
+        };
         let encoding = opts
             .encoding
             .clone()
             .unwrap_or_else(|| snap.revision.encoding.clone());
-        let bytes = decode::encode(&written.text, &encoding);
+        let bytes = decode::encode(&text, &encoding);
 
-        let mut warnings = written.warnings;
+        let mut warnings = warnings;
         // 인코딩으로 표현할 수 없는 글자는 `?`가 되므로 미리 알린다
-        if decode::decode(&bytes, &encoding) != written.text {
+        if decode::decode(&bytes, &encoding) != text {
             warnings.push(format!("{encoding}으로 표현할 수 없는 문자를 ?로 바꿨다"));
         }
 
@@ -184,7 +206,7 @@ mod tests {
         let path = temp("v20.ldf");
         let opts = ExportOptions {
             target: Target::V2_0,
-            eol: Eol::CrLf,
+            eol: Some(Eol::CrLf),
             encoding: Some(decode::CP1252.to_owned()),
             allow_errors: true,
         };
@@ -224,6 +246,56 @@ mod tests {
             r.warnings.iter().any(|w| w.contains("표현할 수 없는")),
             "{:?}",
             r.warnings
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn unedited_export_keeps_comments_and_formatting_byte_for_byte() {
+        let src = "// 머리말\r\n// 두 번째 줄\r\nLIN_description_file;\r\n/* 본문 주석 */\r\nLIN_protocol_version = \"2.1\";\r\nNodes   {  Master:M,1 ms,0 ms; Slaves:A;  }\r\nSignals { S: 8, 0, A, M; }  // 끝\r\nFrames { F: 1, A, 1 { S, 0; } }\r\n";
+        let mut s = Session::open_in_memory().expect("session");
+        let snap = s
+            .import_bytes("a.ldf", src.as_bytes())
+            .expect("import")
+            .snapshot;
+        let path = temp("verbatim.ldf");
+        s.export_snapshot(&snap, &path, &lenient()).expect("export");
+        assert_eq!(std::fs::read(&path).expect("read"), src.as_bytes());
+
+        // 줄바꿈만 고르면 그 부분만 바뀌고 주석은 남는다
+        let opts = ExportOptions {
+            eol: Some(Eol::Lf),
+            ..lenient()
+        };
+        s.export_snapshot(&snap, &path, &opts).expect("export");
+        let lf = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(lf, src.replace("\r\n", "\n"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn edited_export_keeps_the_banner_comment() {
+        let src = "// 머리말\n// 두 번째 줄\nLIN_description_file;\nLIN_protocol_version = \"2.1\";\n// 사라지는 주석\nNodes { Master: M, 1 ms, 0 ms; Slaves: A; }\n";
+        let mut s = Session::open_in_memory().expect("session");
+        let snap = s
+            .import_bytes("a.ldf", src.as_bytes())
+            .expect("import")
+            .snapshot;
+        let edited = s
+            .edit(&snap, &ldf_model::EditOp::AddSlave("B".into()))
+            .expect("edit");
+        let path = temp("banner.ldf");
+        s.export_snapshot(&edited, &path, &lenient())
+            .expect("export");
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            text.starts_with("// 머리말\n// 두 번째 줄\n\nLIN_description_file;"),
+            "{text}"
+        );
+        assert!(text.contains("Slaves: A, B;"));
+        assert!(
+            !text.contains("사라지는 주석"),
+            "본문 주석은 정규 서식으로 다시 쓸 때 사라진다"
         );
         let _ = std::fs::remove_file(&path);
     }

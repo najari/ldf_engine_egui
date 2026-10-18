@@ -30,6 +30,32 @@ pub fn load(src: &str) -> Loaded {
     Loaded { model, diagnostics }
 }
 
+/// 첫 문장 앞의 주석 블록. 줄바꿈은 `\n`으로 통일하고 주석 사이의 빈 줄과 앞뒤 공백은 뗀다.
+/// 끝나지 않은 `/*` 주석은 포함하지 않는다.
+fn leading_comment(src: &str) -> String {
+    let mut out = String::new();
+    let mut rest = src.trim_start_matches('\u{feff}');
+    loop {
+        let t = rest.trim_start();
+        if let Some(r) = t.strip_prefix("//") {
+            let end = r.find('\n').unwrap_or(r.len());
+            out.push_str("//");
+            out.push_str(r[..end].trim_end());
+            out.push('\n');
+            rest = &r[end..];
+        } else if let Some(r) = t.strip_prefix("/*") {
+            let Some(i) = r.find("*/") else { break };
+            out.push_str("/*");
+            out.push_str(&r[..i + 2].replace("\r\n", "\n"));
+            out.push('\n');
+            rest = &r[i + 2..];
+        } else {
+            break;
+        }
+    }
+    out.trim_end().to_owned()
+}
+
 const CANONICAL: &[&str] = &[
     "Nodes",
     "Signals",
@@ -64,6 +90,7 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
     };
     // 이미 디코딩된 문자열에서 읽으므로 기본은 utf-8. 엔진이 감지한 원본 인코딩으로 덮어쓴다.
     lw.model.header.encoding = "utf-8".to_owned();
+    lw.model.header.leading_comment = leading_comment(src);
     let mut sections: Vec<(&str, &Stmt, &Block)> = Vec::new();
 
     for stmt in &file.stmts {
