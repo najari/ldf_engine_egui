@@ -1,0 +1,17 @@
+[package]
+name = "ldf-syntax"
+description = "LDF 토크나이저, 파서, 스팬 포함 AST (의미 해석 없음)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+winnow.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

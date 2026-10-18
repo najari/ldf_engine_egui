@@ -1,0 +1,19 @@
+[package]
+name = "ldf-engine"
+description = "엔진 파사드: 명령/이벤트, 워커 스레드, Undo, diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ldf-syntax.workspace = true
+ldf-model.workspace = true
+ldf-check.workspace = true
+ldf-writer.workspace = true
+ldf-store.workspace = true
+crossbeam-channel.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "ldf-model"
+description = "LDF 도메인 타입, AST -> Model 변환, 이름 해석, PID/체크섬"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ldf-syntax.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

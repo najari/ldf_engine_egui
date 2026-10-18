@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+# 의존성 버전은 여기서만 관리한다 (NFR-04: egui/eframe 0.36, rusqlite 0.40 bundled 고정).
+[workspace.dependencies]
+# 내부 크레이트
+ldf-syntax = { path = "crates/ldf-syntax" }
+ldf-model = { path = "crates/ldf-model" }
+ldf-check = { path = "crates/ldf-check" }
+ldf-writer = { path = "crates/ldf-writer" }
+ldf-store = { path = "crates/ldf-store" }
+ldf-engine = { path = "crates/ldf-engine" }
+
+# 파서·공통
+winnow = "1.0"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+crossbeam-channel = "0.5"
+tracing = "0.1"
+
+# 저장소
+rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite_migration = "2.6"
+
+# UI (egui 생태계는 0.36에 맞춘다)
+eframe = "0.36"
+egui = "0.36"
+egui_extras = "0.36"
+egui_ltreeview = "0.9"
+egui_dock = "0.21"
+egui_code_editor = "0.4"
+rfd = "0.17"
+
+# 테스트
+insta = { version = "1", features = ["json"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# 라이브러리 크레이트에서 unwrap/expect/panic 금지 (PRD 11.2-2). 테스트는 clippy.toml에서 허용.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

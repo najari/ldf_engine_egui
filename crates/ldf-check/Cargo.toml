@@ -1,0 +1,13 @@
+[package]
+name = "ldf-check"
+description = "LDF 검사 규칙 레지스트리와 Diagnostic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ldf-model.workspace = true
+
+[lints]
+workspace = true

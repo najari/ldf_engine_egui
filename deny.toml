@@ -1,0 +1,43 @@
+# cargo-deny 설정. NFR-05(네트워크 접속 없음), NFR-06(허용 라이선스), PRD 11.2-1(UI는 SQL을 모른다).
+
+[graph]
+targets = [{ triple = "x86_64-pc-windows-msvc" }]
+
+[licenses]
+# 의존성은 MIT, Apache-2.0, BSD, Zlib, Unicode 계열만 허용한다.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "ISC",
+    "BSL-1.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+# 워크스페이스 자체 크레이트는 라이선스 미정(PRD 오픈 이슈).
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+    # UI 크레이트는 rusqlite를 직접 가져올 수 없다. 저장소 크레이트만 허용.
+    { crate = "rusqlite", wrappers = ["ldf-store", "rusqlite_migration"] },
+    # NFR-05: 네트워크 접속·텔레메트리 없음.
+    { crate = "reqwest" },
+    { crate = "hyper" },
+    { crate = "ureq" },
+    { crate = "isahc" },
+    { crate = "surf" },
+    { crate = "attohttpc" },
+    { crate = "curl" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
