@@ -1,0 +1,108 @@
+//! 규칙 0101: 선언한 LIN 버전에서 허용되지 않는 섹션·헤더 항목.
+
+use crate::Rule;
+use crate::util::{Proto, diag, file_proto};
+use ldf_model::{Diagnostic, LdfModel, Severity};
+
+/// 규칙 0101.
+pub(crate) struct R0101;
+/// 등록용 인스턴스.
+pub(crate) static RULE: R0101 = R0101;
+
+impl Rule for R0101 {
+    fn code(&self) -> u16 {
+        101
+    }
+
+    fn title(&self) -> &'static str {
+        "Section or header item not allowed for LIN version"
+    }
+
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
+
+    fn check(&self, m: &LdfModel, out: &mut Vec<Diagnostic>) {
+        let p = file_proto(m);
+        if p == Proto::Unknown || p == Proto::Oem {
+            return;
+        }
+        let ver = m.header.protocol_version.as_deref().unwrap_or("?");
+        let mut bad = |what: &str, span: Option<ldf_model::Span>| {
+            out.push(diag(
+                Severity::Error,
+                101,
+                span,
+                format!("{what}은(는) LIN {ver} 파일에서 허용되지 않는다"),
+            ));
+        };
+
+        // 헤더 항목
+        if m.header.channel_name.is_some() && !matches!(p, Proto::V2_1 | Proto::V2_2 | Proto::Iso) {
+            bad("Channel_name", None);
+        }
+        if m.header.ldf_file_revision.is_some() && p != Proto::Iso {
+            bad("LDF_file_revision", None);
+        }
+        if m.header.sig_byte_order_big_endian && p != Proto::Iso {
+            bad("LIN_sig_byte_order_big_endian", None);
+        }
+
+        // 보관 섹션
+        for s in &m.unknown_sections {
+            let allowed = match s.name.as_str() {
+                "dynamic_frames" | "Dynamic_frames" => p == Proto::V2_0,
+                "Signal_groups" => p == Proto::V1_3,
+                "Diagnostic_addresses" => p == Proto::Iso,
+                "Node_composition" => matches!(p, Proto::V2_1 | Proto::V2_2 | Proto::Iso),
+                "composite" => p == Proto::V2_0,
+                _ => true,
+            };
+            if !allowed {
+                bad(&format!("`{}` 섹션", s.name), s.span);
+            }
+        }
+
+        // LIN 1.3에는 2.x에서 생긴 섹션이 없다
+        if p == Proto::V1_3 {
+            for name in [
+                "Diagnostic_signals",
+                "Diagnostic_frames",
+                "Node_attributes",
+                "Event_triggered_frames",
+            ] {
+                if m.section_order.iter().any(|s| s == name) {
+                    bad(&format!("`{name}` 섹션"), None);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ldf_model::load;
+
+    fn n(version: &str, extra: &str) -> usize {
+        let src = format!(
+            "LIN_description_file;\nLIN_protocol_version = \"{version}\";\nLIN_language_version = \"{version}\";\n{extra}\n"
+        );
+        let mut out = Vec::new();
+        RULE.check(&load(&src).model, &mut out);
+        out.len()
+    }
+
+    #[test]
+    fn header_and_sections_by_version() {
+        assert_eq!(n("2.2", "Channel_name = A;"), 0);
+        assert_eq!(n("2.0", "Channel_name = A;"), 1);
+        assert_eq!(n("2.2", "LIN_sig_byte_order_big_endian;"), 1);
+        assert_eq!(n("ISO17987:2015", "LIN_sig_byte_order_big_endian;"), 0);
+        assert_eq!(n("2.1", "dynamic_frames { 1 }"), 1);
+        assert_eq!(n("2.0", "dynamic_frames { 1 }"), 0);
+        assert_eq!(n("2.0", "Signal_groups { }"), 1);
+        assert_eq!(n("2.2", "Diagnostic_addresses { }"), 1);
+        assert_eq!(n("1.3", "Channel_name = A;\ndynamic_frames { 1 }"), 2);
+    }
+}

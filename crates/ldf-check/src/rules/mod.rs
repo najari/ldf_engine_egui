@@ -2,7 +2,69 @@
 
 use crate::Rule;
 
+mod r0010_version;
+mod r0020_structure;
+mod r0021_ignored;
+mod r0030_slave_protocol;
+mod r0101_sections;
+mod r0102_required_section;
+mod r0103_node_attr_version;
+mod r0104_missing_attr;
+mod r0105_etf_format;
+mod r0106_commands;
+mod r0107_byte_init;
+mod r0108_node_attribute_set;
+mod r0201_schedule;
+mod r0202_node_attributes;
+mod r0203_frames;
+mod r0204_encoding_target;
+mod r0205_encoding_values;
+mod r0206_multiple_encodings;
+mod r0301_speed;
+mod r0302_node_parameters;
+mod r0303_frame_parameters;
+mod r0304_signal_parameters;
+mod r0305_command_parameters;
+mod r0306_logical_values;
+mod r0401_unmapped_signal;
+mod r0402_publisher_mapping;
+mod r0403_configurable_frames;
+mod r0404_fault_state;
+mod r0405_publisher_subscriber;
+mod r0406_frame_layout;
+
 /// 등록된 규칙 목록. 새 규칙은 모듈을 추가하고 아래 벡터에 넣는다.
 pub(crate) fn registered() -> Vec<&'static dyn Rule> {
-    vec![]
+    vec![
+        &r0010_version::RULE,
+        &r0020_structure::RULE,
+        &r0021_ignored::RULE,
+        &r0030_slave_protocol::RULE,
+        &r0101_sections::RULE,
+        &r0102_required_section::RULE,
+        &r0103_node_attr_version::RULE,
+        &r0104_missing_attr::RULE,
+        &r0105_etf_format::RULE,
+        &r0106_commands::RULE,
+        &r0403_configurable_frames::RULE,
+        &r0405_publisher_subscriber::RULE,
+        &r0404_fault_state::RULE,
+        &r0402_publisher_mapping::RULE,
+        &r0401_unmapped_signal::RULE,
+        &r0306_logical_values::RULE,
+        &r0305_command_parameters::RULE,
+        &r0304_signal_parameters::RULE,
+        &r0303_frame_parameters::RULE,
+        &r0302_node_parameters::RULE,
+        &r0301_speed::RULE,
+        &r0206_multiple_encodings::RULE,
+        &r0205_encoding_values::RULE,
+        &r0204_encoding_target::RULE,
+        &r0203_frames::RULE,
+        &r0202_node_attributes::RULE,
+        &r0201_schedule::RULE,
+        &r0108_node_attribute_set::RULE,
+        &r0107_byte_init::RULE,
+        &r0406_frame_layout::RULE,
+    ]
 }

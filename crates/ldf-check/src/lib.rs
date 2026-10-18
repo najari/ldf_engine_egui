@@ -5,8 +5,10 @@
 //! 진단의 `code`가 곧 규칙 번호이고, 한 규칙이 여러 결과(진단)를 낼 수 있다.
 
 mod category;
+mod raw;
 mod registry;
 pub mod rules;
+mod util;
 
 pub use category::Category;
 pub use registry::{Rule, all_rules, run_all, run_rules};
