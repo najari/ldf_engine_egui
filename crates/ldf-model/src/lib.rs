@@ -9,6 +9,7 @@
 
 mod arena;
 mod edit;
+mod json;
 mod lower;
 mod protocol;
 mod semantic;
@@ -16,6 +17,7 @@ mod types;
 
 pub use arena::{Arena, ArenaId, EncodingId, FrameId, NodeId, ScheduleId, SignalId};
 pub use edit::{AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft};
+pub use json::{JSON_VERSION, to_json, to_json_string};
 pub use ldf_syntax::{Diagnostic, LineIndex, Severity, Span, codes};
 pub use lower::{Loaded, load, lower};
 pub use protocol::{

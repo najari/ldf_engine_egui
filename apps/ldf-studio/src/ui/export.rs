@@ -1,7 +1,7 @@
 //! 내보내기 창(FR-EXP-01/04): 대상 버전·줄바꿈·인코딩을 고르고, 오류가 남았으면 확인을 받는다.
 
 use egui::Context;
-use ldf_engine::{Eol, ExportOptions, ModelSnapshot, Target, decode};
+use ldf_engine::{Eol, ExportFormat, ExportOptions, ModelSnapshot, Target, decode};
 use std::path::PathBuf;
 
 /// 인코딩 선택.
@@ -63,6 +63,7 @@ pub enum ExportAction {
 pub struct ExportState {
     /// 창을 열었는지.
     pub open: bool,
+    format: ExportFormat,
     target: Option<Target>,
     eol: Option<Eol>,
     enc: Enc,
@@ -100,6 +101,16 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                 egui::Grid::new("export-grid")
                     .num_columns(2)
                     .show(ui, |ui| {
+                        ui.label("형식");
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut st.format, ExportFormat::Ldf, "LDF");
+                            ui.radio_value(&mut st.format, ExportFormat::Json, "모델 JSON")
+                                .on_hover_text("다른 도구 연동용(docs/model.schema.json)");
+                        });
+                        ui.end_row();
+                        if st.format == ExportFormat::Json {
+                            return;
+                        }
                         ui.label("대상 버전");
                         egui::ComboBox::from_id_salt("export-target")
                             .selected_text(target_label(target))
@@ -126,7 +137,9 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                             });
                         ui.end_row();
                     });
-                if target != Target::Keep {
+                if st.format == ExportFormat::Json {
+                    ui.weak("모델을 이름으로 서로 참조하는 JSON으로 내보낸다(UTF-8).");
+                } else if target != Target::Keep {
                     ui.weak("대상 버전에서 허용되지 않는 항목은 빠지고 경고로 알린다.");
                 } else if !snap.dirty {
                     ui.weak("편집하지 않았으므로 원문(주석·서식 포함)을 그대로 내보낸다.");
@@ -137,6 +150,7 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                 ui.horizontal(|ui| {
                     if ui.button("파일 선택…").clicked() {
                         action = Some(ExportAction::Choose(ExportOptions {
+                            format: st.format,
                             target,
                             eol: st.eol,
                             encoding: st.enc.name(),

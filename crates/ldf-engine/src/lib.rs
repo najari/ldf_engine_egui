@@ -13,7 +13,7 @@ mod worker;
 
 pub use analysis::{Analysis, analyze, analyze_text, analyze_text_with, analyze_with};
 pub use error::{EngineError, Result};
-pub use export::{ExportOptions, ExportReport};
+pub use export::{ExportFormat, ExportOptions, ExportReport};
 pub use session::{ImportOutcome, ModelSnapshot, Session};
 pub use worker::{Command, Engine, Event};
 

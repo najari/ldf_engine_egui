@@ -11,7 +11,8 @@ use eframe::Storage;
 use egui::{Key, Modifiers, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
 use ldf_engine::{
-    Command, EditOp, Engine, Event, ExportOptions, ModelSnapshot, RevisionInfo, RuleSettings,
+    Command, EditOp, Engine, Event, ExportFormat, ExportOptions, ModelSnapshot, RevisionInfo,
+    RuleSettings,
 };
 use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
@@ -367,6 +368,10 @@ impl StudioApp {
         let (tx, rx) = channel();
         self.picker = Some(rx);
         let ctx = ctx.clone();
+        let json = self
+            .export_pending
+            .as_ref()
+            .is_some_and(|o| o.format == ExportFormat::Json);
         std::thread::spawn(move || {
             let dialog = rfd::FileDialog::new();
             let picked = match mode {
@@ -381,6 +386,11 @@ impl StudioApp {
                     .set_title("LDF 열기")
                     .pick_file()
                     .map(Picked::Ldf),
+                Mode::Export if json => dialog
+                    .add_filter("JSON", &["json"])
+                    .set_title("모델을 JSON으로 내보내기")
+                    .save_file()
+                    .map(Picked::Export),
                 Mode::Export => dialog
                     .add_filter("LIN Description File", &["ldf"])
                     .set_title("LDF로 내보내기")

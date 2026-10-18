@@ -7,9 +7,21 @@ use ldf_model::{Severity, load, semantically_equal};
 use ldf_writer::{Eol, Target, WriteOptions, write, write_file_atomic};
 use std::path::{Path, PathBuf};
 
+/// 내보내는 파일 형식.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// LDF 텍스트.
+    #[default]
+    Ldf,
+    /// 모델 JSON(`docs/model.schema.json`).
+    Json,
+}
+
 /// 내보내기 옵션.
 #[derive(Clone, Debug, Default)]
 pub struct ExportOptions {
+    /// 파일 형식.
+    pub format: ExportFormat,
     /// 대상 LIN 버전.
     pub target: Target,
     /// 줄바꿈. `None`이면 원본과 같게(원본이 CRLF면 CRLF).
@@ -56,6 +68,21 @@ impl Session {
         path: &Path,
         opts: &ExportOptions,
     ) -> Result<ExportReport> {
+        // JSON은 다른 도구가 읽는 모델 덤프라 검사 결과와 무관하게 내보낸다
+        if opts.format == ExportFormat::Json {
+            let text = ldf_model::to_json_string(&snap.model);
+            write_file_atomic(path, text.as_bytes()).map_err(|source| EngineError::Io {
+                path: path.to_owned(),
+                source,
+            })?;
+            return Ok(ExportReport {
+                path: path.to_owned(),
+                bytes: text.len(),
+                encoding: decode::UTF8.to_owned(),
+                warnings: Vec::new(),
+                verified: true,
+            });
+        }
         let errors = snap
             .diagnostics
             .iter()
@@ -209,6 +236,7 @@ mod tests {
             eol: Some(Eol::CrLf),
             encoding: Some(decode::CP1252.to_owned()),
             allow_errors: true,
+            ..ExportOptions::default()
         };
         let r = s.export(id, &path, &opts).expect("export");
         assert!(
@@ -297,6 +325,32 @@ mod tests {
             !text.contains("사라지는 주석"),
             "본문 주석은 정규 서식으로 다시 쓸 때 사라진다"
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn json_export_writes_the_model_by_name_even_with_errors() {
+        let mut s = Session::open_in_memory().expect("session");
+        let snap = s
+            .import_bytes(
+                "bad.ldf",
+                b"Nodes { Master: M, 1 ms, 0 ms; Slaves: A; } Signals { S: 8, 0, Ghost, M; }",
+            )
+            .expect("import")
+            .snapshot;
+        let path = temp("model.json");
+        let opts = ExportOptions {
+            format: ExportFormat::Json,
+            ..ExportOptions::default()
+        };
+        let r = s
+            .export_snapshot(&snap, &path, &opts)
+            .expect("오류가 있어도 JSON은 내보낸다");
+        assert_eq!(r.encoding, "utf-8");
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(v["format"], "ldf-model");
+        assert_eq!(v["signals"][0]["publisher"], "Ghost");
         let _ = std::fs::remove_file(&path);
     }
 }

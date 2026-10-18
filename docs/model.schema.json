@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/najari/ldf_engine_egui/docs/model.schema.json",
+  "title": "LDF Studio model (JSON export)",
+  "description": "ldf_model::to_json이 내보내는 형식. 객체는 ID가 아니라 이름으로 서로를 가리킨다(정의되지 않은 대상을 가리키는 참조도 이름 그대로 남는다).",
+  "type": "object",
+  "required": ["format", "version", "header", "nodes", "signals", "frames", "encodings", "schedules", "node_attributes", "unknown_sections"],
+  "properties": {
+    "format": { "const": "ldf-model" },
+    "version": { "const": 1 },
+    "header": {
+      "type": "object",
+      "required": ["protocol_version", "language_version", "speed_bps", "channel_name", "ldf_file_revision", "sig_byte_order_big_endian", "encoding", "leading_comment"],
+      "properties": {
+        "protocol_version": { "type": ["string", "null"] },
+        "language_version": { "type": ["string", "null"] },
+        "speed_bps": { "type": ["integer", "null"], "minimum": 0 },
+        "channel_name": { "type": ["string", "null"] },
+        "ldf_file_revision": { "type": ["string", "null"] },
+        "sig_byte_order_big_endian": { "type": "boolean" },
+        "encoding": { "type": "string" },
+        "leading_comment": { "type": "string" }
+      }
+    },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "signals": { "type": "array", "items": { "$ref": "#/$defs/signal" } },
+    "frames": { "type": "array", "items": { "$ref": "#/$defs/frame" } },
+    "encodings": { "type": "array", "items": { "$ref": "#/$defs/encoding" } },
+    "schedules": { "type": "array", "items": { "$ref": "#/$defs/schedule" } },
+    "node_attributes": { "type": "array", "items": { "$ref": "#/$defs/node_attributes" } },
+    "unknown_sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "text"],
+        "properties": { "name": { "type": "string" }, "text": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "names": { "type": "array", "items": { "type": "string" } },
+    "numbers": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+    "node": {
+      "type": "object",
+      "required": ["name", "role", "timebase_ms", "jitter_ms", "max_header_bits", "response_tolerance_pct"],
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "enum": ["master", "slave"] },
+        "timebase_ms": { "type": ["number", "null"] },
+        "jitter_ms": { "type": ["number", "null"] },
+        "max_header_bits": { "type": ["integer", "null"] },
+        "response_tolerance_pct": { "type": ["number", "null"] }
+      }
+    },
+    "signal": {
+      "type": "object",
+      "required": ["name", "kind", "size_bits", "init", "publisher", "subscribers", "encodings"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "enum": ["normal", "diagnostic"] },
+        "size_bits": { "type": "integer", "minimum": 0 },
+        "init": {
+          "type": "object",
+          "oneOf": [
+            { "required": ["scalar"], "properties": { "scalar": { "type": "integer", "minimum": 0 } } },
+            { "required": ["bytes"], "properties": { "bytes": { "$ref": "#/$defs/numbers" } } }
+          ]
+        },
+        "publisher": { "type": ["string", "null"] },
+        "subscribers": { "$ref": "#/$defs/names" },
+        "encodings": { "$ref": "#/$defs/names" }
+      }
+    },
+    "placed_signal": {
+      "type": "object",
+      "required": ["signal", "offset"],
+      "properties": { "signal": { "type": "string" }, "offset": { "type": "integer", "minimum": 0 } }
+    },
+    "frame": {
+      "type": "object",
+      "required": ["name", "kind"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "enum": ["unconditional", "sporadic", "event_triggered", "diagnostic"] },
+        "id": { "type": "integer", "minimum": 0 },
+        "publisher": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "signals": { "type": "array", "items": { "$ref": "#/$defs/placed_signal" } },
+        "associated": { "$ref": "#/$defs/names" },
+        "collision_table": { "type": ["string", "null"] }
+      }
+    },
+    "encoding": {
+      "type": "object",
+      "required": ["name", "entries"],
+      "properties": {
+        "name": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["logical", "physical", "bcd", "ascii"] },
+              "value": { "type": "integer", "minimum": 0 },
+              "text": { "type": "string" },
+              "min": { "type": "integer" },
+              "max": { "type": "integer" },
+              "scale": { "type": "number" },
+              "offset": { "type": "number" },
+              "unit": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["name", "slots"],
+      "properties": {
+        "name": { "type": "string" },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "delay_ms"],
+            "properties": {
+              "type": { "enum": ["frame", "assign_nad", "conditional_change_nad", "data_dump", "save_configuration", "assign_frame_id_range", "assign_frame_id", "free_format", "unknown"] },
+              "delay_ms": { "type": "number" },
+              "frame": { "type": "string" },
+              "node": { "type": "string" },
+              "args": { "$ref": "#/$defs/numbers" },
+              "data": { "$ref": "#/$defs/numbers" },
+              "start_index": { "type": "integer", "minimum": 0 },
+              "pids": { "$ref": "#/$defs/numbers" },
+              "text": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "node_attributes": {
+      "type": "object",
+      "required": ["node", "fault_state_signals", "configurable_frames", "extra"],
+      "properties": {
+        "node": { "type": "string" },
+        "lin_protocol": { "type": ["string", "null"] },
+        "configured_nad": { "type": ["integer", "null"] },
+        "initial_nad": { "type": ["integer", "null"] },
+        "product_id": {
+          "type": ["object", "null"],
+          "properties": {
+            "supplier": { "type": "integer", "minimum": 0 },
+            "function": { "type": "integer", "minimum": 0 },
+            "variant": { "type": ["integer", "null"] }
+          }
+        },
+        "response_error": { "type": ["string", "null"] },
+        "fault_state_signals": { "$ref": "#/$defs/names" },
+        "p2_min_ms": { "type": ["number", "null"] },
+        "st_min_ms": { "type": ["number", "null"] },
+        "n_as_timeout_ms": { "type": ["number", "null"] },
+        "n_cr_timeout_ms": { "type": ["number", "null"] },
+        "configurable_frames": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["frame", "message_id"],
+            "properties": { "frame": { "type": "string" }, "message_id": { "type": ["integer", "null"] } }
+          }
+        },
+        "extra": {
+          "type": "array",
+          "items": { "type": "object", "required": ["key", "text"], "properties": { "key": { "type": "string" }, "text": { "type": "string" } } }
+        }
+      }
+    }
+  }
+}
