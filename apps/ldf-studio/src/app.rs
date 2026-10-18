@@ -1,6 +1,7 @@
 //! 앱 본체: 엔진 이벤트 처리, 입력, 패널 배치.
 
 use crate::fonts;
+use crate::i18n::{self, Lang, t, tr};
 use crate::ui::checker::CheckerAction;
 use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
@@ -29,6 +30,9 @@ const MAX_RECENT: usize = 10;
 struct Settings {
     hex: bool,
     dark: bool,
+    /// 화면 언어. 옛 설정에는 없으므로 없으면 한국어다.
+    #[serde(default)]
+    lang: Lang,
     recent: Vec<PathBuf>,
 }
 
@@ -37,6 +41,7 @@ impl Default for Settings {
         Self {
             hex: false,
             dark: true,
+            lang: Lang::default(),
             recent: Vec::new(),
         }
     }
@@ -141,6 +146,7 @@ impl StudioApp {
             .storage
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
+        i18n::set_lang(settings.lang);
         cc.egui_ctx.set_theme(if settings.dark {
             egui::ThemePreference::Dark
         } else {
@@ -183,7 +189,7 @@ impl StudioApp {
 
     fn send(&mut self, cmd: Command) {
         if self.engine.send(cmd).is_err() {
-            self.fatal = Some("엔진 작업자가 종료되었다".to_owned());
+            self.fatal = Some(t("엔진 작업자가 종료되었다").to_owned());
             self.busy = false;
         }
     }
@@ -243,7 +249,7 @@ impl StudioApp {
             Selection::Frame(id) => match FrameUi::from_frame(m, *id) {
                 Some(d) => Some(Dialog::Frame(d)),
                 None => {
-                    self.notice = Some("진단 프레임은 편집할 수 없다".to_owned());
+                    self.notice = Some(t("진단 프레임은 편집할 수 없다").to_owned());
                     None
                 }
             },
@@ -268,13 +274,13 @@ impl StudioApp {
         let target = match &self.st.selection {
             Selection::Frame(id) => m.frames.get(*id).map(|f| {
                 (
-                    format!("프레임 `{}`", f.name),
+                    tf!("프레임 `{}`", f.name),
                     EditOp::DeleteFrame(f.name.clone()),
                 )
             }),
             Selection::Signal(id) => m.signals.get(*id).map(|s| {
                 (
-                    format!("시그널 `{}`", s.name),
+                    tf!("시그널 `{}`", s.name),
                     EditOp::DeleteSignal(s.name.clone()),
                 )
             }),
@@ -282,15 +288,10 @@ impl StudioApp {
                 .nodes
                 .get(*id)
                 .filter(|n| n.role == ldf_model::NodeRole::Slave)
-                .map(|n| {
-                    (
-                        format!("노드 `{}`", n.name),
-                        EditOp::DeleteNode(n.name.clone()),
-                    )
-                }),
+                .map(|n| (tf!("노드 `{}`", n.name), EditOp::DeleteNode(n.name.clone()))),
             Selection::Schedule(id) | Selection::Slot(id, _) => m.schedules.get(*id).map(|t| {
                 (
-                    format!("스케줄 테이블 `{}`", t.name),
+                    tf!("스케줄 테이블 `{}`", t.name),
                     EditOp::DeleteSchedule(t.name.clone()),
                 )
             }),
@@ -359,22 +360,22 @@ impl StudioApp {
             return;
         };
         let mut keep = true;
-        egui::Window::new("새 리비전으로 저장")
+        egui::Window::new(t("새 리비전으로 저장"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label("이 리비전의 라벨(비우면 출처 파일 이름)");
+                ui.label(t("이 리비전의 라벨(비우면 출처 파일 이름)"));
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut label)
-                        .hint_text("예: 공급사 회신 반영")
+                        .hint_text(t("예: 공급사 회신 반영"))
                         .desired_width(280.0),
                 );
                 edit.request_focus();
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("저장").clicked() || enter {
+                    if ui.button(t("저장")).clicked() || enter {
                         let text = label.trim();
                         self.busy = true;
                         self.send(Command::SaveEdits {
@@ -382,7 +383,7 @@ impl StudioApp {
                         });
                         keep = false;
                     }
-                    if ui.button("취소").clicked() {
+                    if ui.button(t("취소")).clicked() {
                         self.after_save = None;
                         keep = false;
                     }
@@ -419,24 +420,24 @@ impl StudioApp {
             let dialog = rfd::FileDialog::new();
             let picked = match mode {
                 Mode::Project => dialog
-                    .add_filter("LDF Studio 프로젝트", &["ldfdb"])
-                    .set_title("프로젝트 열기 또는 만들기")
+                    .add_filter(t("LDF Studio 프로젝트"), &["ldfdb"])
+                    .set_title(t("프로젝트 열기 또는 만들기"))
                     .save_file()
                     .map(Picked::Project),
                 Mode::Open => dialog
                     .add_filter("LIN Description File", &["ldf"])
-                    .add_filter("모든 파일", &["*"])
-                    .set_title("LDF 열기")
+                    .add_filter(t("모든 파일"), &["*"])
+                    .set_title(t("LDF 열기"))
                     .pick_file()
                     .map(Picked::Ldf),
                 Mode::Export if json => dialog
                     .add_filter("JSON", &["json"])
-                    .set_title("모델을 JSON으로 내보내기")
+                    .set_title(t("모델을 JSON으로 내보내기"))
                     .save_file()
                     .map(Picked::Export),
                 Mode::Export => dialog
                     .add_filter("LIN Description File", &["ldf"])
-                    .set_title("LDF로 내보내기")
+                    .set_title(t("LDF로 내보내기"))
                     .save_file()
                     .map(Picked::Export),
             };
@@ -500,7 +501,7 @@ impl StudioApp {
                     self.set_title(ctx, &snapshot);
                     if reused {
                         self.notice =
-                            Some("같은 내용의 리비전이 이미 있어 그것을 열었다".to_owned());
+                            Some(t("같은 내용의 리비전이 이미 있어 그것을 열었다").to_owned());
                     }
                     self.snapshot = Some(snapshot);
                 }
@@ -530,7 +531,7 @@ impl StudioApp {
                             ));
                         }
                     }
-                    self.notice = Some("리비전을 삭제했다".to_owned());
+                    self.notice = Some(t("리비전을 삭제했다").to_owned());
                 }
                 Event::Edited(snapshot) => {
                     self.busy = false;
@@ -543,24 +544,25 @@ impl StudioApp {
                     self.busy = false;
                     self.revisions = revisions;
                     self.adopt_edit(ctx, snapshot);
-                    self.notice = Some("편집 내용을 새 리비전으로 저장했다".to_owned());
+                    self.notice = Some(t("편집 내용을 새 리비전으로 저장했다").to_owned());
                     if let Some(next) = self.after_save.take() {
                         self.perform(next);
                     }
                 }
                 Event::Exported(r) => {
                     self.busy = false;
-                    let mut msg = format!(
+                    let mut msg = tf!(
                         "내보냈다: {} ({} 바이트, {})",
                         r.path.display(),
                         r.bytes,
                         r.encoding
                     );
                     if !r.verified && r.warnings.is_empty() {
-                        msg.push_str(" — 다시 읽은 결과가 원본과 다르다");
+                        msg.push_str(t(" — 다시 읽은 결과가 원본과 다르다"));
                     }
                     if !r.warnings.is_empty() {
-                        msg.push_str(&format!(" — 경고: {}", r.warnings.join("; ")));
+                        let warnings: Vec<_> = r.warnings.iter().map(|w| tr(w)).collect();
+                        msg.push_str(&tf!(" — 경고: {}", warnings.join("; ")));
                     }
                     self.notice = Some(msg);
                 }
@@ -580,11 +582,11 @@ impl StudioApp {
                 }
                 Event::Failed(msg) => {
                     self.busy = false;
-                    self.notice = Some(msg);
+                    self.notice = Some(tr(&msg).into_owned());
                 }
                 Event::Fatal(msg) => {
                     self.busy = false;
-                    self.fatal = Some(msg);
+                    self.fatal = Some(tr(&msg).into_owned());
                 }
             }
         }
@@ -612,7 +614,7 @@ impl StudioApp {
             .clone()
             .unwrap_or_else(|| snap.revision.label.clone());
         let mark = if snap.dirty { "*" } else { "" };
-        let title = format!("{mark}LDF Studio — {name} (리비전 {})", snap.revision.id);
+        let title = tf!("{mark}LDF Studio — {name} (리비전 {})", snap.revision.id);
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -668,18 +670,19 @@ impl StudioApp {
 
     fn menu_bar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        let mut lang_changed = false;
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("파일", |ui| {
-                if ui.button("LDF 열기…    Ctrl+O").clicked() {
+            ui.menu_button(t("파일"), |ui| {
+                if ui.button(t("LDF 열기…    Ctrl+O")).clicked() {
                     self.pick(&ctx, false);
                     ui.close();
                 }
-                if ui.button("프로젝트 열기/만들기…").clicked() {
+                if ui.button(t("프로젝트 열기/만들기…")).clicked() {
                     self.pick(&ctx, true);
                     ui.close();
                 }
                 ui.add_enabled_ui(!self.settings.recent.is_empty(), |ui| {
-                    ui.menu_button("최근 파일", |ui| {
+                    ui.menu_button(t("최근 파일"), |ui| {
                         let recent = self.settings.recent.clone();
                         for p in recent {
                             let label = p.file_name().map_or_else(
@@ -700,7 +703,7 @@ impl StudioApp {
                 if ui
                     .add_enabled(
                         !self.revisions.is_empty(),
-                        egui::Button::new("리비전·비교…"),
+                        egui::Button::new(t("리비전·비교…")),
                     )
                     .clicked()
                 {
@@ -709,31 +712,31 @@ impl StudioApp {
                 }
                 ui.separator();
                 if ui
-                    .add_enabled(self.snapshot.is_some(), egui::Button::new("내보내기…"))
+                    .add_enabled(self.snapshot.is_some(), egui::Button::new(t("내보내기…")))
                     .clicked()
                 {
                     self.st.export.open = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("종료").clicked() {
+                if ui.button(t("종료")).clicked() {
                     self.request(Pending::Quit);
                 }
             });
-            ui.menu_button("편집", |ui| {
+            ui.menu_button(t("편집"), |ui| {
                 let (can_undo, can_redo, dirty) = self
                     .snapshot
                     .as_ref()
                     .map_or((false, false, false), |s| (s.can_undo, s.can_redo, s.dirty));
                 if ui
-                    .add_enabled(can_undo, egui::Button::new("실행 취소    Ctrl+Z"))
+                    .add_enabled(can_undo, egui::Button::new(t("실행 취소    Ctrl+Z")))
                     .clicked()
                 {
                     self.undo();
                     ui.close();
                 }
                 if ui
-                    .add_enabled(can_redo, egui::Button::new("다시 실행    Ctrl+Y"))
+                    .add_enabled(can_redo, egui::Button::new(t("다시 실행    Ctrl+Y")))
                     .clicked()
                 {
                     self.redo();
@@ -742,29 +745,29 @@ impl StudioApp {
                 ui.separator();
                 let has = self.snapshot.is_some();
                 if ui
-                    .add_enabled(has, egui::Button::new("선택 항목 편집…    Enter"))
+                    .add_enabled(has, egui::Button::new(t("선택 항목 편집…    Enter")))
                     .clicked()
                 {
                     self.open_edit();
                     ui.close();
                 }
                 if ui
-                    .add_enabled(has, egui::Button::new("선택 항목 삭제…    Delete"))
+                    .add_enabled(has, egui::Button::new(t("선택 항목 삭제…    Delete")))
                     .clicked()
                 {
                     self.open_delete();
                     ui.close();
                 }
                 ui.add_enabled_ui(has, |ui| {
-                    ui.menu_button("새로 만들기", |ui| {
+                    ui.menu_button(t("새로 만들기"), |ui| {
                         for (label, kind) in [
-                            ("무조건 프레임", NewKind::Unconditional),
-                            ("이벤트 트리거 프레임", NewKind::EventTriggered),
-                            ("스포라딕 프레임", NewKind::Sporadic),
-                            ("시그널", NewKind::Signal),
-                            ("슬레이브 노드", NewKind::Slave),
-                            ("스케줄 테이블", NewKind::Schedule),
-                            ("인코딩 타입", NewKind::Encoding),
+                            (t("무조건 프레임"), NewKind::Unconditional),
+                            (t("이벤트 트리거 프레임"), NewKind::EventTriggered),
+                            (t("스포라딕 프레임"), NewKind::Sporadic),
+                            (t("시그널"), NewKind::Signal),
+                            (t("슬레이브 노드"), NewKind::Slave),
+                            (t("스케줄 테이블"), NewKind::Schedule),
+                            (t("인코딩 타입"), NewKind::Encoding),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_new(kind);
@@ -775,45 +778,67 @@ impl StudioApp {
                 });
                 ui.separator();
                 if ui
-                    .add_enabled(dirty, egui::Button::new("편집 저장    Ctrl+S"))
-                    .on_hover_text("편집한 내용을 새 리비전으로 저장한다")
+                    .add_enabled(dirty, egui::Button::new(t("편집 저장    Ctrl+S")))
+                    .on_hover_text(t("편집한 내용을 새 리비전으로 저장한다"))
                     .clicked()
                 {
                     self.save_edits();
                     ui.close();
                 }
             });
-            ui.menu_button("보기", |ui| {
-                ui.checkbox(&mut self.settings.hex, "16진수로 표시");
-                if ui.checkbox(&mut self.settings.dark, "다크 테마").changed() {
+            ui.menu_button(t("보기"), |ui| {
+                ui.checkbox(&mut self.settings.hex, t("16진수로 표시"));
+                if ui
+                    .checkbox(&mut self.settings.dark, t("다크 테마"))
+                    .changed()
+                {
                     ctx.set_theme(if self.settings.dark {
                         egui::ThemePreference::Dark
                     } else {
                         egui::ThemePreference::Light
                     });
                 }
+                ui.menu_button(t("언어 / Language"), |ui| {
+                    for lang in [Lang::Ko, Lang::En] {
+                        if ui
+                            .selectable_value(&mut self.settings.lang, lang, lang.native_name())
+                            .clicked()
+                        {
+                            i18n::set_lang(lang);
+                            lang_changed = true;
+                            ui.close();
+                        }
+                    }
+                });
             });
-            ui.menu_button("검사", |ui| {
-                if ui.button("Checker 열기").clicked() {
+            ui.menu_button(t("검사"), |ui| {
+                if ui.button(t("Checker 열기")).clicked() {
                     self.st.checker.open = true;
                     ui.close();
                 }
             });
-            ui.menu_button("도움말", |ui| {
-                ui.label("LDF Studio — LIN Description File 뷰어·편집기");
-                ui.weak("M1 뷰어 + M2 Checker");
+            ui.menu_button(t("도움말"), |ui| {
+                ui.label(t("LDF Studio — LIN Description File 뷰어·편집기"));
+                ui.weak(t("M1 뷰어 + M2 Checker"));
                 if let Some(p) = &self.project_path {
                     ui.separator();
-                    ui.weak(format!("프로젝트: {}", p.display()));
+                    ui.weak(tf!("프로젝트: {}", p.display()));
                 }
             });
         });
+        if lang_changed {
+            // 창 제목은 언어가 바뀌어도 그대로면 다시 보내지 않으므로 비워 새로 만들게 한다
+            self.title.clear();
+            if let Some(snap) = self.snapshot.clone() {
+                self.set_title(&ctx, &snap);
+            }
+        }
     }
 
     fn toolbar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         ui.horizontal(|ui| {
-            if ui.button("LDF 열기").clicked() {
+            if ui.button(t("LDF 열기")).clicked() {
                 self.pick(&ctx, false);
             }
             if ui.button("Checker").clicked() {
@@ -826,28 +851,28 @@ impl StudioApp {
                 .map_or((false, false, false), |s| (s.can_undo, s.can_redo, s.dirty));
             if ui
                 .add_enabled(can_undo, egui::Button::new("Undo"))
-                .on_hover_text("실행 취소 (Ctrl+Z)")
+                .on_hover_text(t("실행 취소 (Ctrl+Z)"))
                 .clicked()
             {
                 self.undo();
             }
             if ui
                 .add_enabled(can_redo, egui::Button::new("Redo"))
-                .on_hover_text("다시 실행 (Ctrl+Y)")
+                .on_hover_text(t("다시 실행 (Ctrl+Y)"))
                 .clicked()
             {
                 self.redo();
             }
             if ui
-                .add_enabled(dirty, egui::Button::new("저장"))
-                .on_hover_text("편집한 내용을 새 리비전으로 저장 (Ctrl+S)")
+                .add_enabled(dirty, egui::Button::new(t("저장")))
+                .on_hover_text(t("편집한 내용을 새 리비전으로 저장 (Ctrl+S)"))
                 .clicked()
             {
                 self.save_edits();
             }
             ui.separator();
             ui.toggle_value(&mut self.settings.hex, "hex")
-                .on_hover_text("숫자를 16진수로 표시");
+                .on_hover_text(t("숫자를 16진수로 표시"));
             ui.separator();
             self.revision_combo(ui);
         });
@@ -858,12 +883,12 @@ impl StudioApp {
             return;
         }
         let current = self.snapshot.as_ref().map(|s| s.revision.id);
-        let label = |r: &RevisionInfo| format!("#{} {} ({})", r.id, r.label, r.created_at);
+        let label = |r: &RevisionInfo| format!("#{} {} ({})", r.id, tr(&r.label), r.created_at);
         let selected = self
             .revisions
             .iter()
             .find(|r| Some(r.id) == current)
-            .map_or_else(|| "리비전".to_owned(), label);
+            .map_or_else(|| t("리비전").to_owned(), label);
         let mut open: Option<i64> = None;
         egui::ComboBox::from_id_salt("revision-combo")
             .selected_text(selected)
@@ -891,8 +916,9 @@ impl StudioApp {
         };
         egui::Panel::top("notice").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.colored_label(ui.visuals().warn_fg_color, msg);
-                if ui.small_button("닫기").clicked() {
+                // 알림은 한국어로 쌓아 둔 채 언어를 바꿀 수 있으므로 그리는 자리에서 번역한다
+                ui.colored_label(ui.visuals().warn_fg_color, tr(&msg));
+                if ui.small_button(t("닫기")).clicked() {
                     self.notice = None;
                 }
             });
@@ -906,18 +932,18 @@ impl StudioApp {
                 ui.add_space(ui.available_height() * 0.3);
                 ui.heading("LDF Studio");
                 ui.add_space(8.0);
-                ui.label("LDF 파일을 이 창에 끌어다 놓거나 아래 버튼으로 여세요.");
+                ui.label(t("LDF 파일을 이 창에 끌어다 놓거나 아래 버튼으로 여세요."));
                 ui.add_space(12.0);
-                if ui.button("LDF 열기…").clicked() {
+                if ui.button(t("LDF 열기…")).clicked() {
                     self.pick(&ctx, false);
                 }
                 if !self.revisions.is_empty() {
                     ui.add_space(16.0);
-                    ui.weak("이 프로젝트에 저장된 리비전:");
+                    ui.weak(t("이 프로젝트에 저장된 리비전:"));
                     let revs: Vec<RevisionInfo> = self.revisions.iter().rev().cloned().collect();
                     for r in revs {
                         if ui
-                            .link(format!("#{} {}  ({})", r.id, r.label, r.created_at))
+                            .link(format!("#{} {}  ({})", r.id, tr(&r.label), r.created_at))
                             .clicked()
                         {
                             self.request(Pending::OpenRevision(r.id));
@@ -932,7 +958,7 @@ impl StudioApp {
         match crate::ui::checker::show(ctx, snap, &self.rules, &mut self.st.checker) {
             Some(CheckerAction::RunChecks(text)) => {
                 if text == snap.source {
-                    self.notice = Some("변경한 내용이 없다".to_owned());
+                    self.notice = Some(t("변경한 내용이 없다").to_owned());
                     return;
                 }
                 let name = snap
@@ -966,28 +992,28 @@ impl StudioApp {
             return;
         };
         let what = match &act {
-            Pending::Quit => "종료하기 전에",
-            Pending::Import(_) | Pending::OpenProject(_) => "다른 파일을 열기 전에",
-            Pending::OpenRevision(_) => "다른 리비전을 열기 전에",
+            Pending::Quit => t("종료하기 전에"),
+            Pending::Import(_) | Pending::OpenProject(_) => t("다른 파일을 열기 전에"),
+            Pending::OpenRevision(_) => t("다른 리비전을 열기 전에"),
         };
-        egui::Window::new("저장하지 않은 변경")
+        egui::Window::new(t("저장하지 않은 변경"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label(format!("{what} 편집한 내용을 저장할까?"));
+                ui.label(tf!("{what} 편집한 내용을 저장할까?"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("저장").clicked() {
+                    if ui.button(t("저장")).clicked() {
                         self.unsaved = None;
                         self.after_save = Some(act.clone());
                         self.save_edits();
                     }
-                    if ui.button("버리기").clicked() {
+                    if ui.button(t("버리기")).clicked() {
                         self.unsaved = None;
                         self.perform(act.clone());
                     }
-                    if ui.button("취소").clicked() {
+                    if ui.button(t("취소")).clicked() {
                         self.unsaved = None;
                     }
                 });
@@ -1017,7 +1043,7 @@ impl StudioApp {
                             bytes,
                             ("CSV", "csv"),
                             "ldf-diff.csv",
-                            "비교 결과를 CSV로 저장",
+                            t("비교 결과를 CSV로 저장"),
                         );
                     } else {
                         let html = ldf_engine::diff_report::to_html(&d.diff, &a, &b);
@@ -1026,7 +1052,7 @@ impl StudioApp {
                             html.into_bytes(),
                             ("HTML", "html"),
                             "ldf-diff.html",
-                            "비교 결과를 HTML로 저장",
+                            t("비교 결과를 HTML로 저장"),
                         );
                     }
                 }
@@ -1065,7 +1091,7 @@ impl StudioApp {
             bytes,
             ("CSV", "csv"),
             "check-report.csv",
-            "검사 보고서 저장",
+            t("검사 보고서 저장"),
         );
     }
 
@@ -1088,8 +1114,8 @@ impl StudioApp {
                 .save_file();
             if let Some(path) = picked {
                 let msg = match std::fs::write(&path, bytes) {
-                    Ok(()) => format!("저장했다: {}", path.display()),
-                    Err(e) => format!("저장하지 못했다: {e}"),
+                    Ok(()) => tf!("저장했다: {}", path.display()),
+                    Err(e) => tf!("저장하지 못했다: {e}"),
                 };
                 let _ = tx.send(msg);
                 ctx.request_repaint();
@@ -1102,10 +1128,10 @@ impl StudioApp {
         egui::CentralPanel::default().show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(ui.available_height() * 0.3);
-                ui.heading("엔진이 중단되었다");
-                ui.colored_label(ui.visuals().error_fg_color, msg);
+                ui.heading(t("엔진이 중단되었다"));
+                ui.colored_label(ui.visuals().error_fg_color, tr(msg));
                 ui.add_space(8.0);
-                if ui.button("엔진 다시 시작").clicked() {
+                if ui.button(t("엔진 다시 시작")).clicked() {
                     self.engine = spawn_engine(
                         &ctx,
                         self.project_path
@@ -1178,7 +1204,7 @@ impl StudioApp {
                             None => props::placeholder(
                                 ui,
                                 "Schedule Properties",
-                                "스케줄 테이블이나 슬롯을 선택하세요",
+                                t("스케줄 테이블이나 슬롯을 선택하세요"),
                             ),
                         },
                     );
@@ -1206,7 +1232,7 @@ impl StudioApp {
                                 inline_op = Some(op);
                             }
                         }
-                        None => props::placeholder(ui, "Properties", "항목을 선택하세요"),
+                        None => props::placeholder(ui, "Properties", t("항목을 선택하세요")),
                     }
                     if let Some(f) = frame_for_bits {
                         bits::show(ui, &snap.model, f);

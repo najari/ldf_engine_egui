@@ -1,5 +1,6 @@
 //! 리비전 창(FR-REV-01..05): 부모–자식 트리, 두 리비전의 비교(Diff 탭), 비교 결과 저장, 리비전 삭제.
 
+use crate::i18n::{change_label, t, tr};
 use crate::view::revisions::{Class, DiffRow, diff_rows, tree_rows};
 use egui::{Color32, ComboBox, Context, RichText, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -72,13 +73,13 @@ pub enum RevAction {
 }
 
 fn label(r: &RevisionInfo) -> String {
-    format!("#{} {} ({})", r.id, r.label, r.created_at)
+    format!("#{} {} ({})", r.id, tr(&r.label), r.created_at)
 }
 
 fn pick(ui: &mut Ui, id: &str, value: &mut Option<i64>, revisions: &[RevisionInfo]) {
     let text = value
         .and_then(|v| revisions.iter().find(|r| r.id == v))
-        .map_or_else(|| "(선택)".to_owned(), label);
+        .map_or_else(|| t("(선택)").to_owned(), label);
     ComboBox::from_id_salt(id)
         .width(300.0)
         .selected_text(text)
@@ -114,14 +115,14 @@ pub fn show(
 
     let mut open = st.open;
     let mut action = None;
-    egui::Window::new("리비전")
+    egui::Window::new(t("리비전"))
         .open(&mut open)
         .default_size([860.0, 520.0])
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut st.tab, Tab::Tree, "리비전");
-                ui.selectable_value(&mut st.tab, Tab::Diff, "비교 (Diff)");
+                ui.selectable_value(&mut st.tab, Tab::Tree, t("리비전"));
+                ui.selectable_value(&mut st.tab, Tab::Diff, t("비교 (Diff)"));
             });
             ui.separator();
             match st.tab {
@@ -141,7 +142,9 @@ fn tree(
 ) -> Option<RevAction> {
     let mut action = None;
     if revisions.is_empty() {
-        ui.weak("이 프로젝트에는 아직 리비전이 없다. LDF를 열면 리비전이 만들어진다.");
+        ui.weak(t(
+            "이 프로젝트에는 아직 리비전이 없다. LDF를 열면 리비전이 만들어진다.",
+        ));
         return None;
     }
     egui::ScrollArea::vertical()
@@ -151,7 +154,14 @@ fn tree(
                 .striped(true)
                 .num_columns(6)
                 .show(ui, |ui| {
-                    for h in ["리비전", "출처 파일", "생성 시각", "버전", "", ""] {
+                    for h in [
+                        t("리비전"),
+                        t("출처 파일"),
+                        t("생성 시각"),
+                        t("버전"),
+                        "",
+                        "",
+                    ] {
                         ui.strong(h);
                     }
                     ui.end_row();
@@ -161,9 +171,9 @@ fn tree(
                         };
                         let indent = "    ".repeat(row.depth);
                         let branch = if row.depth > 0 { "└ " } else { "" };
-                        let text = format!("{indent}{branch}#{} {}", r.id, r.label);
+                        let text = format!("{indent}{branch}#{} {}", r.id, tr(&r.label));
                         let text = if Some(r.id) == current {
-                            RichText::new(format!("{text}  ◀ 열림")).strong()
+                            RichText::new(tf!("{text}  ◀ 열림")).strong()
                         } else {
                             RichText::new(text)
                         };
@@ -172,12 +182,12 @@ fn tree(
                         ui.label(&r.created_at);
                         ui.label(r.protocol_version.as_deref().unwrap_or("?"));
                         if ui
-                            .add_enabled(Some(r.id) != current, egui::Button::new("열기"))
+                            .add_enabled(Some(r.id) != current, egui::Button::new(t("열기")))
                             .clicked()
                         {
                             action = Some(RevAction::Open(r.id));
                         }
-                        if ui.button("삭제…").clicked() {
+                        if ui.button(t("삭제…")).clicked() {
                             st.confirm_delete = Some(r.id);
                         }
                         ui.end_row();
@@ -190,34 +200,36 @@ fn tree(
 fn diff_tab(ui: &mut Ui, revisions: &[RevisionInfo], st: &mut RevState) -> Option<RevAction> {
     let mut action = None;
     if revisions.len() < 2 {
-        ui.weak(
+        ui.weak(t(
             "비교하려면 리비전이 두 개 이상 있어야 한다(편집을 저장하거나 다른 판을 열어 보라).",
-        );
+        ));
     }
     egui::Grid::new("diff-pick").num_columns(2).show(ui, |ui| {
-        ui.label("이전");
+        ui.label(t("이전"));
         pick(ui, "diff-before", &mut st.before, revisions);
         ui.end_row();
-        ui.label("이후");
+        ui.label(t("이후"));
         pick(ui, "diff-after", &mut st.after, revisions);
         ui.end_row();
     });
     ui.horizontal(|ui| {
         let ready = st.before.is_some() && st.after.is_some();
-        if ui.add_enabled(ready, egui::Button::new("비교")).clicked()
+        if ui
+            .add_enabled(ready, egui::Button::new(t("비교")))
+            .clicked()
             && let (Some(before), Some(after)) = (st.before, st.after)
         {
             action = Some(RevAction::Diff { before, after });
         }
         let has = st.diff.is_some();
         if ui
-            .add_enabled(has, egui::Button::new("CSV로 저장"))
+            .add_enabled(has, egui::Button::new(t("CSV로 저장")))
             .clicked()
         {
             action = Some(RevAction::SaveDiff { csv: true });
         }
         if ui
-            .add_enabled(has, egui::Button::new("HTML로 저장"))
+            .add_enabled(has, egui::Button::new(t("HTML로 저장")))
             .clicked()
         {
             action = Some(RevAction::SaveDiff { csv: false });
@@ -225,16 +237,17 @@ fn diff_tab(ui: &mut Ui, revisions: &[RevisionInfo], st: &mut RevState) -> Optio
     });
     ui.separator();
     let Some(shown) = &st.diff else {
-        ui.weak("두 리비전을 고르고 비교를 누른다.");
+        ui.weak(t("두 리비전을 고르고 비교를 누른다."));
         return action;
     };
     let (added, removed, changed, renamed) = shown.diff.counts();
-    ui.label(format!(
+    ui.label(tf!(
         "#{} → #{}: 추가 {added}, 삭제 {removed}, 변경 {changed}, 이름 변경 {renamed}",
-        shown.before, shown.after
+        shown.before,
+        shown.after
     ));
     if shown.diff.is_empty() {
-        ui.weak("차이 없음");
+        ui.weak(t("차이 없음"));
         return action;
     }
     let rows = Arc::clone(&shown.rows);
@@ -253,7 +266,14 @@ fn diff_tab(ui: &mut Ui, revisions: &[RevisionInfo], st: &mut RevState) -> Optio
         .column(Column::initial(200.0))
         .column(Column::remainder())
         .header(20.0, |mut h| {
-            for t in ["종류", "이름", "변경", "필드", "이전", "이후"] {
+            for t in [
+                t("종류"),
+                t("이름"),
+                t("변경"),
+                t("필드"),
+                t("이전"),
+                t("이후"),
+            ] {
                 h.col(|ui| {
                     ui.strong(t);
                 });
@@ -274,7 +294,7 @@ fn diff_tab(ui: &mut Ui, revisions: &[RevisionInfo], st: &mut RevState) -> Optio
                     ui.colored_label(color, &r.name);
                 });
                 row.col(|ui| {
-                    ui.colored_label(color, r.change);
+                    ui.colored_label(color, change_label(r.change));
                 });
                 row.col(|ui| {
                     ui.label(&r.field);
@@ -299,25 +319,25 @@ fn confirm_window(
     let id = st.confirm_delete?;
     let children = revisions.iter().filter(|r| r.parent_id == Some(id)).count();
     let mut action = None;
-    egui::Window::new("리비전 삭제")
+    egui::Window::new(t("리비전 삭제"))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label(format!("리비전 #{id}을(를) 삭제할까? 되돌릴 수 없다."));
+            ui.label(tf!("리비전 #{id}을(를) 삭제할까? 되돌릴 수 없다."));
             if children > 0 {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    format!("이 리비전에서 갈라진 자식 리비전이 {children}개 있다. 삭제하면 그 리비전들의 부모 연결이 끊긴다."),
+                    tf!("이 리비전에서 갈라진 자식 리비전이 {children}개 있다. 삭제하면 그 리비전들의 부모 연결이 끊긴다."),
                 );
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("삭제").clicked() {
+                if ui.button(t("삭제")).clicked() {
                     action = Some(RevAction::Delete(id));
                     st.confirm_delete = None;
                 }
-                if ui.button("취소").clicked() {
+                if ui.button(t("취소")).clicked() {
                     st.confirm_delete = None;
                 }
             });

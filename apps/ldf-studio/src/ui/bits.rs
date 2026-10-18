@@ -1,5 +1,6 @@
 //! 프레임 비트 레이아웃 미니맵(FR-UI-08): 8바이트 x 8비트, 시그널별 색, 겹침은 빨간 테두리.
 
+use crate::i18n::t;
 use crate::view::derive::{self, BitMap};
 use egui::{Align2, Color32, FontId, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ldf_model::{FrameId, LdfModel, SignalId};
@@ -31,7 +32,7 @@ pub fn show(ui: &mut Ui, m: &LdfModel, frame: FrameId) {
     }
     ui.add_space(8.0);
     ui.strong("Bit Layout");
-    ui.weak("한 줄 = 1바이트 (왼쪽이 비트 7)");
+    ui.weak(t("한 줄 = 1바이트 (왼쪽이 비트 7)"));
 
     let dark = ui.visuals().dark_mode;
     let order: Vec<SignalId> = m.frames.get(frame).map_or_else(Vec::new, |f| {
@@ -118,13 +119,13 @@ pub fn show(ui: &mut Ui, m: &LdfModel, frame: FrameId) {
 }
 
 fn tooltip(m: &LdfModel, bit: usize, owners: &[SignalId]) -> String {
-    let at = format!("바이트 {}, 비트 {}", bit / 8, bit % 8);
+    let at = tf!("바이트 {}, 비트 {}", bit / 8, bit % 8);
     match owners {
-        [] => format!("{at}: 사용하지 않음"),
+        [] => tf!("{at}: 사용하지 않음"),
         [one] => format!("{at}: {}", name_of(m, *one)),
         many => {
             let names: Vec<String> = many.iter().map(|s| name_of(m, *s)).collect();
-            format!("{at}: 겹침! {}", names.join(" + "))
+            tf!("{at}: 겹침! {}", names.join(" + "))
         }
     }
 }
@@ -132,13 +133,13 @@ fn tooltip(m: &LdfModel, bit: usize, owners: &[SignalId]) -> String {
 fn problems(ui: &mut Ui, m: &LdfModel, map: &BitMap) {
     let error = ui.visuals().error_fg_color;
     if map.has_overlap() {
-        ui.colored_label(error, "시그널이 겹친다 (빨간 테두리)");
+        ui.colored_label(error, t("시그널이 겹친다 (빨간 테두리)"));
     }
     if !map.overflow.is_empty() {
         let names: Vec<String> = map.overflow.iter().map(|s| name_of(m, *s)).collect();
         ui.colored_label(
             error,
-            format!("프레임 크기를 넘는 시그널: {}", names.join(", ")),
+            tf!("프레임 크기를 넘는 시그널: {}", names.join(", ")),
         );
     }
 }

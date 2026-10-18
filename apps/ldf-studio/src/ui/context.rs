@@ -1,6 +1,7 @@
 //! 오브젝트 컨텍스트 뷰: 선택한 객체의 하위 목록 표. 가상 스크롤이라 행이 수천 개여도 프레임 비용이 일정하다.
 
 use super::UiState;
+use crate::i18n::t;
 use crate::view::Selection;
 use crate::view::context::context_table;
 use egui::{Sense, Ui};
@@ -15,7 +16,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         .get(key, || context_table(&snap.model, &st.selection, hex));
     if table.columns.is_empty() {
         ui.strong("Object Context");
-        ui.weak("왼쪽 트리에서 항목을 선택하세요");
+        ui.weak(t("왼쪽 트리에서 항목을 선택하세요"));
         return;
     }
     ui.strong(&table.title);

@@ -1,6 +1,7 @@
 //! 스케줄 뷰: 테이블과 슬롯을 트리형 표로 보여준다.
 
 use super::UiState;
+use crate::i18n::t;
 use crate::view::edit::{drop_frame_op, move_slot_op};
 use crate::view::{Selection, derive};
 use egui::{Sense, Ui};
@@ -36,7 +37,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
     let m = &snap.model;
     ui.strong("Schedule Tables");
     if m.schedules.is_empty() {
-        ui.weak("스케줄 테이블이 없다");
+        ui.weak(t("스케줄 테이블이 없다"));
         return;
     }
 

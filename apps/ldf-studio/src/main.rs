@@ -3,6 +3,8 @@
 // 릴리스 빌드는 콘솔 창 없이 GUI만 띄운다(디버그 빌드는 로그를 보도록 콘솔을 유지한다).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod i18n;
 mod app;
 mod fonts;
 mod logging;

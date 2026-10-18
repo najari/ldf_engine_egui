@@ -1,6 +1,7 @@
 //! 내비게이션 뷰: Frames/Commands, Nodes/Frames 두 탭의 트리와 이름 검색.
 
 use super::UiState;
+use crate::i18n::t;
 use crate::view::nav::{self, NavKey, NavNode};
 use crate::view::{NavTab, Selection};
 use egui::{Id, Key, ScrollArea, Ui};
@@ -17,7 +18,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
 
     let search = ui.add(
         egui::TextEdit::singleline(&mut st.search)
-            .hint_text("이름 검색 (Ctrl+F)")
+            .hint_text(t("이름 검색 (Ctrl+F)"))
             .desired_width(f32::INFINITY),
     );
     if st.focus_search {
@@ -39,7 +40,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
             nav::filter(&full, &query)
         });
     let Some(root) = (*cached).as_ref() else {
-        ui.weak("일치하는 항목이 없다");
+        ui.weak(t("일치하는 항목이 없다"));
         return;
     };
     let searching = !query.is_empty();

@@ -3,6 +3,7 @@
 //! 대화상자는 초안(`view::edit`)을 들고 있다가 OK에서 `EditOp::Batch` 하나로 바꿔 돌려준다.
 //! 입력하는 동안 초안을 모델 복사본에 미리 적용해 보고, 실패 사유와 이 변경으로 새로 생기는 검사 결과를 보여 준다.
 
+use crate::i18n::{t, tr};
 use crate::ui::bits;
 use crate::view::SelKey;
 use crate::view::edit::{
@@ -91,7 +92,7 @@ enum Done {
 fn pick(ui: &mut Ui, id: impl Hash + std::fmt::Debug, value: &mut String, options: &[String]) {
     ComboBox::from_id_salt(id)
         .selected_text(if value.is_empty() {
-            "(선택)"
+            t("(선택)")
         } else {
             value.as_str()
         })
@@ -109,9 +110,9 @@ fn pick_opt(
     options: &[String],
 ) {
     ComboBox::from_id_salt(id)
-        .selected_text(value.as_deref().unwrap_or("(없음)"))
+        .selected_text(value.as_deref().unwrap_or(t("(없음)")))
         .show_ui(ui, |ui| {
-            ui.selectable_value(value, None, "(없음)");
+            ui.selectable_value(value, None, t("(없음)"));
             for o in options {
                 ui.selectable_value(value, Some(o.clone()), o);
             }
@@ -151,18 +152,18 @@ fn footer(
         ui.colored_label(red, p);
     }
     if let Some(e) = error {
-        ui.colored_label(red, e);
+        ui.colored_label(red, tr(e));
     }
     if !findings.is_empty() {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            "이 변경으로 새로 생기는 검사 결과:",
+            t("이 변경으로 새로 생기는 검사 결과:"),
         );
         for d in findings.iter().take(6) {
-            ui.weak(format!("  [{:04}] {}", d.code, d.message));
+            ui.weak(format!("  [{:04}] {}", d.code, tr(&d.message)));
         }
         if findings.len() > 6 {
-            ui.weak(format!("  … 외 {}건", findings.len() - 6));
+            ui.weak(tf!("  … 외 {}건", findings.len() - 6));
         }
     }
     ui.add_space(6.0);
@@ -171,7 +172,7 @@ fn footer(
         if ui.add_enabled(ok_enabled, egui::Button::new(ok)).clicked() {
             done = Done::Ok;
         }
-        if ui.button("취소").clicked() {
+        if ui.button(t("취소")).clicked() {
             done = Done::Cancel;
         }
     });
@@ -249,7 +250,7 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut EditState) -> Outcome 
     }
 
     if let Some(mut enc) = st.encoding.take() {
-        let done = window(ctx, "인코딩 타입", |ui| encoding(ui, &mut enc));
+        let done = window(ctx, t("인코딩 타입"), |ui| encoding(ui, &mut enc));
         match done {
             Done::Open => st.encoding = Some(enc),
             Done::Cancel => {}
@@ -276,9 +277,9 @@ fn frame(
     out: &mut Outcome,
 ) -> Done {
     let title = if d.orig.is_some() {
-        "프레임 편집"
+        t("프레임 편집")
     } else {
-        "프레임 만들기"
+        t("프레임 만들기")
     };
     let key = format!("{d:?}");
     let c = analyze(&mut st.cache, key, model, || d.to_op(model));
@@ -299,7 +300,7 @@ fn frame(
 
     let done = window(ctx, title, |ui| {
         egui::Grid::new("frame-grid").num_columns(2).show(ui, |ui| {
-            ui.label("이름");
+            ui.label(t("이름"));
             text(ui, &mut d.name, 200.0);
             ui.end_row();
             match &mut d.kind {
@@ -311,10 +312,10 @@ fn frame(
                     ui.label("ID (0–59)");
                     text(ui, id, 80.0);
                     ui.end_row();
-                    ui.label("발행 노드");
+                    ui.label(t("발행 노드"));
                     pick(ui, "frame-pub", publisher, &nodes);
                     ui.end_row();
-                    ui.label("크기 (byte)");
+                    ui.label(t("크기 (byte)"));
                     ui.add(DragValue::new(size).range(1..=8));
                     ui.end_row();
                 }
@@ -322,7 +323,7 @@ fn frame(
                     ui.label("ID (0–59)");
                     text(ui, id, 80.0);
                     ui.end_row();
-                    ui.label("충돌 해결 테이블");
+                    ui.label(t("충돌 해결 테이블"));
                     pick_opt(ui, "frame-coll", collision, &tables);
                     ui.end_row();
                 }
@@ -332,7 +333,7 @@ fn frame(
         match &mut d.kind {
             KindUi::Sporadic { associated } | KindUi::EventTriggered { associated, .. } => {
                 ui.separator();
-                ui.strong("연관 프레임");
+                ui.strong(t("연관 프레임"));
                 check_list(ui, &frames, associated);
             }
             KindUi::Unconditional { .. } => placements(ui, model, d, &signals),
@@ -366,22 +367,22 @@ fn frame(
 
 fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]) {
     ui.separator();
-    ui.strong("시그널");
+    ui.strong(t("시그널"));
     let mut remove = None;
     egui::Grid::new("frame-signals")
         .num_columns(4)
         .show(ui, |ui| {
             for (i, (name, off)) in d.placements.iter_mut().enumerate() {
                 pick(ui, ("placed", i), name, signals);
-                ui.add(DragValue::new(off).range(0..=63).prefix("비트 "));
+                ui.add(DragValue::new(off).range(0..=63).prefix(t("비트 ")));
                 let len = model
                     .find_signal(name)
                     .and_then(|s| model.signals.get(s))
                     .map_or(0, |s| s.size_bits);
-                ui.weak(format!("{len}비트"));
+                ui.weak(tf!("{len}비트"));
                 if ui
-                    .small_button("삭제")
-                    .on_hover_text("프레임에서 뺀다")
+                    .small_button(t("삭제"))
+                    .on_hover_text(t("프레임에서 뺀다"))
                     .clicked()
                 {
                     remove = Some(i);
@@ -390,12 +391,16 @@ fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]
             }
             for (i, n) in d.added.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.label("새");
+                    ui.label(t("새"));
                     text(ui, &mut n.name, 90.0);
                 });
-                ui.add(DragValue::new(&mut n.offset).range(0..=63).prefix("비트 "));
-                ui.add(DragValue::new(&mut n.size).range(1..=16).suffix("비트"));
-                if ui.small_button("삭제").clicked() {
+                ui.add(
+                    DragValue::new(&mut n.offset)
+                        .range(0..=63)
+                        .prefix(t("비트 ")),
+                );
+                ui.add(DragValue::new(&mut n.size).range(1..=16).suffix(t("비트")));
+                if ui.small_button(t("삭제")).clicked() {
                     remove = Some(d.placements.len() + i);
                 }
                 ui.end_row();
@@ -416,7 +421,7 @@ fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]
             .collect();
         let mut chosen = String::new();
         ComboBox::from_id_salt("add-placement")
-            .selected_text("시그널 추가…")
+            .selected_text(t("시그널 추가…"))
             .show_ui(ui, |ui| {
                 for s in &free {
                     ui.selectable_value(&mut chosen, s.clone(), s);
@@ -426,7 +431,7 @@ fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]
             let at = next_free_offset(model, d);
             d.placements.push((chosen, at));
         }
-        if ui.button("새 시그널").clicked() {
+        if ui.button(t("새 시그널")).clicked() {
             let at = next_free_offset(model, d);
             let name = unique_new_name(model, d);
             d.added.push(NewSignalUi {
@@ -467,9 +472,9 @@ fn signal(
     out: &mut Outcome,
 ) -> Done {
     let title = if d.orig.is_some() {
-        "시그널 편집"
+        t("시그널 편집")
     } else {
-        "시그널 만들기"
+        t("시그널 만들기")
     };
     let key = format!("{d:?}");
     let c = analyze(&mut st.cache, key, model, || d.to_op());
@@ -486,40 +491,40 @@ fn signal(
         egui::Grid::new("signal-grid")
             .num_columns(2)
             .show(ui, |ui| {
-                ui.label("이름");
+                ui.label(t("이름"));
                 text(ui, &mut d.name, 200.0);
                 ui.end_row();
-                ui.label("종류");
+                ui.label(t("종류"));
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut d.array, false, "스칼라");
-                    ui.selectable_value(&mut d.array, true, "바이트 배열");
+                    ui.selectable_value(&mut d.array, false, t("스칼라"));
+                    ui.selectable_value(&mut d.array, true, t("바이트 배열"));
                 });
                 ui.end_row();
-                ui.label("길이 (bit)");
+                ui.label(t("길이 (bit)"));
                 ui.add(DragValue::new(&mut d.size).range(1..=64));
                 ui.end_row();
                 ui.label(if d.array {
-                    "초기값 (쉼표로 구분)"
+                    t("초기값 (쉼표로 구분)")
                 } else {
-                    "초기값"
+                    t("초기값")
                 });
                 text(ui, &mut d.init, 200.0);
                 ui.end_row();
-                ui.label("발행 노드");
+                ui.label(t("발행 노드"));
                 pick_opt(ui, "sig-pub", &mut d.publisher, &nodes);
                 ui.end_row();
-                ui.label("구독 노드");
+                ui.label(t("구독 노드"));
                 check_list(ui, &nodes, &mut d.subscribers);
                 ui.end_row();
-                ui.label("인코딩");
+                ui.label(t("인코딩"));
                 ui.horizontal(|ui| {
                     pick_opt(ui, "sig-enc", &mut d.encoding, &encodings);
                     if let Some(name) = &d.encoding
-                        && ui.small_button("편집…").clicked()
+                        && ui.small_button(t("편집…")).clicked()
                     {
                         open_encoding = EncodingUi::from_name(model, name);
                     }
-                    if ui.small_button("새로…").clicked() {
+                    if ui.small_button(t("새로…")).clicked() {
                         open_encoding = Some(EncodingUi::new(model));
                     }
                 });
@@ -552,7 +557,7 @@ fn signal(
 
 fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
     egui::Grid::new("enc-name").num_columns(2).show(ui, |ui| {
-        ui.label("이름");
+        ui.label(t("이름"));
         text(ui, &mut d.name, 200.0);
         ui.end_row();
     });
@@ -564,7 +569,7 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
             for (i, e) in d.entries.iter_mut().enumerate() {
                 match e {
                     EntryUi::Logical(v, t) => {
-                        ui.label("논리값");
+                        ui.label(crate::i18n::t("논리값"));
                         text(ui, v, 60.0);
                         text(ui, t, 140.0);
                         ui.label("");
@@ -572,7 +577,7 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
                         ui.label("");
                     }
                     EntryUi::Physical(min, max, scale, offset, unit) => {
-                        ui.label("물리값");
+                        ui.label(t("물리값"));
                         text(ui, min, 50.0);
                         text(ui, max, 50.0);
                         text(ui, scale, 50.0);
@@ -591,7 +596,7 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
                         ui.label("");
                     }
                 }
-                if ui.small_button("삭제").clicked() {
+                if ui.small_button(t("삭제")).clicked() {
                     remove = Some(i);
                 }
                 ui.end_row();
@@ -601,11 +606,11 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
         d.entries.remove(i);
     }
     ui.horizontal(|ui| {
-        if ui.button("+ 논리값").clicked() {
+        if ui.button(t("+ 논리값")).clicked() {
             d.entries.push(EntryUi::Logical("0".into(), String::new()));
         }
         if ui
-            .button("+ 물리값 (최소, 최대, 스케일, 오프셋, 단위)")
+            .button(t("+ 물리값 (최소, 최대, 스케일, 오프셋, 단위)"))
             .clicked()
         {
             d.entries.push(EntryUi::Physical(
@@ -624,7 +629,7 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
         }
     });
     let err = d.to_op().err();
-    footer(ui, "적용", err.is_none(), &[], err.as_deref(), &[])
+    footer(ui, t("적용"), err.is_none(), &[], err.as_deref(), &[])
 }
 
 // ---- 노드 ---------------------------------------------------------------------------------------
@@ -639,9 +644,9 @@ fn node(
     out: &mut Outcome,
 ) -> Done {
     let title = match (&d.orig, d.master) {
-        (None, _) => "슬레이브 노드 만들기",
-        (Some(_), true) => "마스터 노드 편집",
-        (Some(_), false) => "슬레이브 노드 편집",
+        (None, _) => t("슬레이브 노드 만들기"),
+        (Some(_), true) => t("마스터 노드 편집"),
+        (Some(_), false) => t("슬레이브 노드 편집"),
     };
     let key = format!("{d:?}");
     let c = analyze(&mut st.cache, key, model, || d.to_op());
@@ -666,14 +671,14 @@ fn node(
 
     let done = window(ctx, title, |ui| {
         egui::Grid::new("node-grid").num_columns(2).show(ui, |ui| {
-            ui.label("이름");
+            ui.label(t("이름"));
             text(ui, &mut d.name, 200.0);
             ui.end_row();
             if d.master {
-                ui.label("타임베이스 (ms)");
+                ui.label(t("타임베이스 (ms)"));
                 text(ui, &mut d.timebase, 80.0);
                 ui.end_row();
-                ui.label("지터 (ms)");
+                ui.label(t("지터 (ms)"));
                 text(ui, &mut d.jitter, 80.0);
                 ui.end_row();
             }
@@ -681,7 +686,7 @@ fn node(
         if !d.master {
             let mut has = d.attrs.is_some();
             if ui
-                .checkbox(&mut has, "노드 속성 (Node_attributes)")
+                .checkbox(&mut has, t("노드 속성 (Node_attributes)"))
                 .changed()
             {
                 d.attrs = has.then(|| crate::view::edit::AttrsUi::blank(model));
@@ -703,7 +708,7 @@ fn node(
                     ui.label("initial_NAD");
                     text(ui, &mut a.initial_nad, 80.0);
                     ui.end_row();
-                    ui.label("product_id (공급자, 기능, 변형)");
+                    ui.label(t("product_id (공급자, 기능, 변형)"));
                     ui.horizontal(|ui| {
                         text(ui, &mut a.supplier, 60.0);
                         text(ui, &mut a.function, 60.0);
@@ -731,7 +736,7 @@ fn node(
                 });
                 let with_ids = matches!(a.lin_protocol.as_str(), "2.0" | "J2602_1_1.0");
                 ui.strong(if with_ids {
-                    "configurable_frames (메시지 ID 필요)"
+                    t("configurable_frames (메시지 ID 필요)")
                 } else {
                     "configurable_frames"
                 });
@@ -742,7 +747,7 @@ fn node(
                         if with_ids {
                             text(ui, id, 70.0);
                         }
-                        if ui.small_button("삭제").clicked() {
+                        if ui.small_button(t("삭제")).clicked() {
                             remove = Some(i);
                         }
                     });
@@ -750,7 +755,7 @@ fn node(
                 if let Some(i) = remove {
                     a.frames.remove(i);
                 }
-                if ui.button("+ 프레임").clicked() {
+                if ui.button(t("+ 프레임")).clicked() {
                     let first = frames.first().cloned().unwrap_or_default();
                     a.frames.push((first, String::new()));
                 }
@@ -787,9 +792,9 @@ fn schedule(
     out: &mut Outcome,
 ) -> Done {
     let title = if d.orig.is_some() {
-        "스케줄 테이블 편집"
+        t("스케줄 테이블 편집")
     } else {
-        "스케줄 테이블 만들기"
+        t("스케줄 테이블 만들기")
     };
     let key = format!("{d:?}");
     let c = analyze(&mut st.cache, key, model, || d.to_op(model));
@@ -800,7 +805,7 @@ fn schedule(
 
     let done = window(ctx, title, |ui| {
         egui::Grid::new("sched-name").num_columns(2).show(ui, |ui| {
-            ui.label("이름");
+            ui.label(t("이름"));
             text(ui, &mut d.name, 200.0);
             ui.end_row();
         });
@@ -840,7 +845,7 @@ fn schedule(
                         if ui.small_button("↓").clicked() {
                             action = Some((i, 1));
                         }
-                        if ui.small_button("삭제").clicked() {
+                        if ui.small_button(t("삭제")).clicked() {
                             action = Some((i, 0));
                         }
                     });
@@ -866,11 +871,11 @@ fn schedule(
             }
         }
         ui.horizontal(|ui| {
-            if ui.button("+ 프레임 슬롯").clicked() {
+            if ui.button(t("+ 프레임 슬롯")).clicked() {
                 let first = frames.first().cloned().unwrap_or_default();
                 d.slots.push(SlotUi::frame(&first));
             }
-            if ui.button("+ 진단 명령").clicked() {
+            if ui.button(t("+ 진단 명령")).clicked() {
                 let mut s = SlotUi::frame("");
                 s.kind = SlotKind::AssignNad;
                 s.node = slaves.first().cloned().unwrap_or_default();
@@ -901,18 +906,21 @@ fn schedule(
 // ---- 삭제 ---------------------------------------------------------------------------------------
 
 fn delete(ctx: &Context, d: &DeleteUi, out: &mut Outcome) -> Done {
-    let done = window(ctx, "삭제 확인", |ui| {
-        ui.label(format!("{}을(를) 삭제할까?", d.what));
+    let done = window(ctx, t("삭제 확인"), |ui| {
+        ui.label(tf!("{}을(를) 삭제할까?", d.what));
         if d.effects.is_empty() {
-            ui.weak("다른 항목에 미치는 영향은 없다.");
+            ui.weak(t("다른 항목에 미치는 영향은 없다."));
         } else {
             ui.add_space(4.0);
-            ui.colored_label(ui.visuals().warn_fg_color, "함께 지우거나 정리되는 항목:");
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                t("함께 지우거나 정리되는 항목:"),
+            );
             for e in &d.effects {
-                ui.label(format!("  • {e}"));
+                ui.label(format!("  • {}", tr(e)));
             }
         }
-        footer(ui, "삭제", true, &[], None, &[])
+        footer(ui, t("삭제"), true, &[], None, &[])
     });
     if matches!(done, Done::Ok) {
         *out = Outcome::Apply {

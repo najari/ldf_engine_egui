@@ -2,6 +2,7 @@
 
 use super::Cache;
 use super::editor::{self, EditorState};
+use crate::i18n::{t, tr};
 use crate::view::checker::{self, CheckerTree, FlatRow, OpenKey};
 use egui::{Context, RichText, Sense, Ui};
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
@@ -95,11 +96,13 @@ fn rules_window(
     }
     let mut open = true;
     let mut action = None;
-    egui::Window::new("검사 규칙 설정")
+    egui::Window::new(t("검사 규칙 설정"))
         .open(&mut open)
         .default_size([620.0, 480.0])
         .show(ctx, |ui| {
-            ui.weak("바꾼 설정은 프로젝트(.ldfdb)에 저장되고 열려 있는 파일에 바로 적용된다.");
+            ui.weak(t(
+                "바꾼 설정은 프로젝트(.ldfdb)에 저장되고 열려 있는 파일에 바로 적용된다.",
+            ));
             ui.separator();
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
@@ -126,10 +129,10 @@ fn rules_window(
                                     .selected_text(if setting.severity.is_some() {
                                         severity_name(current).to_owned()
                                     } else {
-                                        format!("{} (기본)", severity_name(current))
+                                        tf!("{} (기본)", severity_name(current))
                                     })
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut setting.severity, None, "기본");
+                                        ui.selectable_value(&mut setting.severity, None, t("기본"));
                                         for s in
                                             [Severity::Info, Severity::Warning, Severity::Error]
                                         {
@@ -140,7 +143,7 @@ fn rules_window(
                                             );
                                         }
                                     });
-                                if ui.small_button("기본값").clicked() {
+                                if ui.small_button(t("기본값")).clicked() {
                                     setting = RuleSetting::default();
                                 }
                                 if setting != before {
@@ -173,28 +176,28 @@ fn body(ui: &mut Ui, snap: &ModelSnapshot, st: &mut CheckerState) -> Option<Chec
     ui.horizontal(|ui| {
         let run = ui.add_enabled(
             st.editor.dirty,
-            egui::Button::new("Run Checks (적용 후 재검사)"),
+            egui::Button::new(t("Run Checks (적용 후 재검사)")),
         );
         if run
-            .on_hover_text("편집한 텍스트를 새 리비전으로 저장하고 다시 검사한다")
+            .on_hover_text(t("편집한 텍스트를 새 리비전으로 저장하고 다시 검사한다"))
             .clicked()
         {
             action = Some(CheckerAction::RunChecks(st.editor.text.clone()));
         }
         if ui
-            .add_enabled(st.editor.dirty, egui::Button::new("되돌리기"))
+            .add_enabled(st.editor.dirty, egui::Button::new(t("되돌리기")))
             .clicked()
         {
             st.editor.reset(snap.source.clone());
         }
-        if ui.button("보고서 CSV 저장").clicked() {
+        if ui.button(t("보고서 CSV 저장")).clicked() {
             action = Some(CheckerAction::SaveCsv(checker::to_csv(&tree)));
         }
-        if ui.button("규칙 설정…").clicked() {
+        if ui.button(t("규칙 설정…")).clicked() {
             st.show_rules = !st.show_rules;
         }
         ui.separator();
-        ui.label("줄 이동");
+        ui.label(t("줄 이동"));
         let resp = ui.add(egui::TextEdit::singleline(&mut st.goto_input).desired_width(60.0));
         if resp.lost_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -205,14 +208,14 @@ fn body(ui: &mut Ui, snap: &ModelSnapshot, st: &mut CheckerState) -> Option<Chec
         ui.separator();
         let total = tree.total();
         if total == 0 {
-            ui.label("문제 없음");
+            ui.label(t("문제 없음"));
         } else {
-            ui.label(format!("결과 {total}건"));
+            ui.label(tf!("결과 {total}건"));
         }
         if st.editor.dirty {
             ui.colored_label(
                 ui.visuals().warn_fg_color,
-                "수정됨 — 결과는 Run Checks 후 갱신된다",
+                t("수정됨 — 결과는 Run Checks 후 갱신된다"),
             );
         }
     });
@@ -312,7 +315,7 @@ fn results(ui: &mut Ui, tree: &CheckerTree, st: &mut CheckerState) {
                     row.col(|ui| {
                         ui.add_space(30.0);
                         let c = severity_color(ui, item.severity);
-                        ui.colored_label(c, &item.message);
+                        ui.colored_label(c, tr(&item.message));
                     });
                     row.col(|ui| {
                         ui.label(&item.source);

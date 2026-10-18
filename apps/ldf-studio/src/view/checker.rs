@@ -261,7 +261,7 @@ pub fn to_csv(tree: &CheckerTree) -> Vec<u8> {
                     "{},{:04},{sev},{line},{col},{},{},{}\r\n",
                     esc(&g.label),
                     r.code,
-                    esc(&it.message),
+                    esc(&crate::i18n::tr(&it.message)),
                     esc(&it.source),
                     esc(&it.constraint)
                 ));

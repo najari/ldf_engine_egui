@@ -3,6 +3,7 @@
 use super::Selection;
 use super::derive::{self, Named, uint};
 use super::nav;
+use crate::i18n::t;
 use ldf_model::{FrameId, FrameKind, LdfModel, Ref, ScheduleId, SignalId};
 
 /// 표의 칸.
@@ -268,9 +269,9 @@ pub fn context_table(m: &LdfModel, sel: &Selection, hex: bool) -> Table {
         }
         Selection::Command(c) => Table {
             title: format!("Command <{c}>"),
-            columns: vec!["설명"],
+            columns: vec![t("설명")],
             rows: vec![Row {
-                cells: vec![Cell::text("스케줄 테이블 슬롯으로 사용하는 진단 명령")],
+                cells: vec![Cell::text(t("스케줄 테이블 슬롯으로 사용하는 진단 명령"))],
                 target: Selection::None,
             }],
         },

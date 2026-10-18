@@ -3,6 +3,7 @@
 //! 대화상자는 초안 구조체를 들고 있다가 OK에서 `EditOp::Batch` 하나로 바꿔 보낸다(Undo 한 번에 대화상자 전체가 취소된다).
 //! 초안은 [`preview`]로 모델 복사본에 미리 적용해 보고, 적용 실패와 이 변경으로 새로 생기는 검사 결과를 입력 중에 보여 준다.
 
+use crate::i18n::t;
 use crate::view::Selection;
 use ldf_model::{
     AttrsDraft, Diagnostic, EditOp, EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind,
@@ -232,7 +233,7 @@ impl FrameUi {
         let id_text = match &self.kind {
             KindUi::Unconditional { id, size, .. } => {
                 if !(1..=8).contains(size) {
-                    p.push("크기는 1–8 byte여야 한다".to_owned());
+                    p.push(t("크기는 1–8 byte여야 한다").to_owned());
                 }
                 Some(id)
             }
@@ -241,8 +242,8 @@ impl FrameUi {
         };
         if let Some(id) = id_text {
             match parse_uint(id) {
-                None => p.push("ID는 정수여야 한다".to_owned()),
-                Some(v) if v > 59 => p.push("ID는 0–59여야 한다".to_owned()),
+                None => p.push(t("ID는 정수여야 한다").to_owned()),
+                Some(v) if v > 59 => p.push(t("ID는 0–59여야 한다").to_owned()),
                 Some(_) => {}
             }
         }
@@ -257,7 +258,7 @@ impl FrameUi {
                 publisher,
                 size,
             } => FrameDraftKind::Unconditional {
-                id: parse_uint(id).ok_or("ID는 정수여야 한다")?,
+                id: parse_uint(id).ok_or(t("ID는 정수여야 한다"))?,
                 publisher: publisher.clone(),
                 size: *size,
             },
@@ -269,7 +270,7 @@ impl FrameUi {
                 collision,
                 associated,
             } => FrameDraftKind::EventTriggered {
-                id: parse_uint(id).ok_or("ID는 정수여야 한다")?,
+                id: parse_uint(id).ok_or(t("ID는 정수여야 한다"))?,
                 collision_table: collision.clone(),
                 associated: associated.clone(),
             },
@@ -427,16 +428,16 @@ impl SignalUi {
         let mut p = Vec::new();
         if self.array {
             if self.size == 0 || self.size > 64 || !self.size.is_multiple_of(8) {
-                p.push("바이트 배열의 길이는 8의 배수로 8–64비트여야 한다".to_owned());
+                p.push(t("바이트 배열의 길이는 8의 배수로 8–64비트여야 한다").to_owned());
             }
             match parse_list(&self.init) {
-                None => p.push("초기값은 쉼표로 나눈 정수여야 한다".to_owned()),
+                None => p.push(t("초기값은 쉼표로 나눈 정수여야 한다").to_owned()),
                 Some(v) => {
                     if v.iter().any(|b| *b > 255) {
-                        p.push("바이트는 0–255여야 한다".to_owned());
+                        p.push(t("바이트는 0–255여야 한다").to_owned());
                     }
                     if v.len() as u32 * 8 != self.size {
-                        p.push(format!(
+                        p.push(tf!(
                             "초기값 바이트가 {}개인데 길이는 {}바이트다",
                             v.len(),
                             self.size / 8
@@ -446,15 +447,12 @@ impl SignalUi {
             }
         } else {
             if !(1..=16).contains(&self.size) {
-                p.push("스칼라 길이는 1–16비트여야 한다".to_owned());
+                p.push(t("스칼라 길이는 1–16비트여야 한다").to_owned());
             }
             match parse_uint(&self.init) {
-                None => p.push("초기값은 정수여야 한다".to_owned()),
+                None => p.push(t("초기값은 정수여야 한다").to_owned()),
                 Some(v) if self.size < 32 && u64::from(v) >= 1u64 << self.size => {
-                    p.push(format!(
-                        "초기값 {v}을(를) {}비트로 표현할 수 없다",
-                        self.size
-                    ));
+                    p.push(tf!("초기값 {v}을(를) {}비트로 표현할 수 없다", self.size));
                 }
                 Some(_) => {}
             }
@@ -464,16 +462,16 @@ impl SignalUi {
 
     fn draft(&self) -> Result<SignalDraft, String> {
         let init = if self.array {
-            let bytes = parse_list(&self.init).ok_or("초기값은 쉼표로 나눈 정수여야 한다")?;
+            let bytes = parse_list(&self.init).ok_or(t("초기값은 쉼표로 나눈 정수여야 한다"))?;
             InitValue::Array(
                 bytes
                     .into_iter()
-                    .map(|b| u8::try_from(b).map_err(|_| "바이트는 0–255여야 한다"))
+                    .map(|b| u8::try_from(b).map_err(|_| t("바이트는 0–255여야 한다")))
                     .collect::<Result<Vec<_>, _>>()?,
             )
         } else {
             InitValue::Scalar(u64::from(
-                parse_uint(&self.init).ok_or("초기값은 정수여야 한다")?,
+                parse_uint(&self.init).ok_or(t("초기값은 정수여야 한다"))?,
             ))
         };
         Ok(SignalDraft {
@@ -613,7 +611,7 @@ impl AttrsUi {
             } else {
                 parse_uint(s)
                     .map(Some)
-                    .ok_or(format!("{what}은(는) 정수여야 한다"))
+                    .ok_or(tf!("{what}은(는) 정수여야 한다"))
             }
         };
         let ms = |s: &str, what: &str| -> Result<Option<f64>, String> {
@@ -623,23 +621,23 @@ impl AttrsUi {
                 s.trim()
                     .parse()
                     .map(Some)
-                    .map_err(|_| format!("{what}은(는) 숫자여야 한다"))
+                    .map_err(|_| tf!("{what}은(는) 숫자여야 한다"))
             }
         };
         let product_id = match (
-            uint(&self.supplier, "공급자 ID")?,
-            uint(&self.function, "기능 ID")?,
+            uint(&self.supplier, t("공급자 ID"))?,
+            uint(&self.function, t("기능 ID"))?,
         ) {
             (Some(supplier), Some(function)) => Some(ProductId {
                 supplier,
                 function,
-                variant: uint(&self.variant, "변형 ID")?,
+                variant: uint(&self.variant, t("변형 ID"))?,
             }),
             _ => None,
         };
         let mut frames = Vec::new();
         for (f, id) in &self.frames {
-            frames.push((f.clone(), uint(id, "메시지 ID")?));
+            frames.push((f.clone(), uint(id, t("메시지 ID"))?));
         }
         Ok(AttrsDraft {
             lin_protocol: (!self.lin_protocol.trim().is_empty()).then(|| self.lin_protocol.clone()),
@@ -721,12 +719,12 @@ impl NodeUi {
                 .timebase
                 .trim()
                 .parse()
-                .map_err(|_| "타임베이스는 숫자여야 한다")?;
+                .map_err(|_| t("타임베이스는 숫자여야 한다"))?;
             let j: f64 = self
                 .jitter
                 .trim()
                 .parse()
-                .map_err(|_| "지터는 숫자여야 한다")?;
+                .map_err(|_| crate::i18n::t("지터는 숫자여야 한다"))?;
             ops.push(EditOp::SetMasterTiming {
                 node: self.name.clone(),
                 timebase_ms: t,
@@ -782,7 +780,7 @@ impl SlotKind {
     /// 표시 이름.
     pub fn label(self) -> &'static str {
         match self {
-            SlotKind::Frame => "프레임",
+            SlotKind::Frame => t("프레임"),
             SlotKind::AssignNad => "AssignNAD",
             SlotKind::ConditionalChangeNad => "ConditionalChangeNAD",
             SlotKind::DataDump => "DataDump",
@@ -902,8 +900,9 @@ impl SlotUi {
             .delay
             .trim()
             .parse()
-            .map_err(|_| "delay는 숫자여야 한다")?;
-        let args = || parse_list(&self.args).ok_or("인자는 쉼표로 나눈 정수여야 한다".to_owned());
+            .map_err(|_| t("delay는 숫자여야 한다"))?;
+        let args =
+            || parse_list(&self.args).ok_or(t("인자는 쉼표로 나눈 정수여야 한다").to_owned());
         let entry = match self.kind {
             SlotKind::Frame => SlotDraft::Frame(self.frame.clone()),
             SlotKind::AssignNad => SlotDraft::AssignNad(self.node.clone()),
@@ -912,7 +911,7 @@ impl SlotUi {
             SlotKind::SaveConfiguration => SlotDraft::SaveConfiguration(self.node.clone()),
             SlotKind::AssignFrameIdRange => {
                 let all = args()?;
-                let (start, pids) = all.split_first().ok_or("시작 인덱스가 필요하다")?;
+                let (start, pids) = all.split_first().ok_or(t("시작 인덱스가 필요하다"))?;
                 SlotDraft::AssignFrameIdRange(self.node.clone(), *start, pids.to_vec())
             }
             SlotKind::AssignFrameId => {
@@ -969,7 +968,7 @@ impl ScheduleUi {
     /// 대화상자 OK에 보낼 연산. 기존 슬롯을 모두 지우고 입력대로 다시 넣는다(테이블의 ID와 참조는 유지된다).
     pub fn to_op(&self, m: &LdfModel) -> Result<EditOp, String> {
         if self.has_unknown {
-            return Err("해석하지 못한 슬롯이 있어 이 테이블은 대화상자로 고칠 수 없다(Checker 창에서 텍스트로 고친다)".to_owned());
+            return Err(t("해석하지 못한 슬롯이 있어 이 테이블은 대화상자로 고칠 수 없다(Checker 창에서 텍스트로 고친다)").to_owned());
         }
         let mut ops = Vec::new();
         let table = match &self.orig {
@@ -1026,9 +1025,7 @@ impl ScheduleUi {
                 {
                     let k = delay / tb;
                     if (k - k.round()).abs() > 1e-6 {
-                        return Some(format!(
-                            "delay {delay} ms가 타임베이스 {tb} ms의 배수가 아니다"
-                        ));
+                        return Some(tf!("delay {delay} ms가 타임베이스 {tb} ms의 배수가 아니다"));
                     }
                 }
                 if s.kind == SlotKind::Frame
@@ -1037,7 +1034,7 @@ impl ScheduleUi {
                     && let Some(tmax) = ldf_model::frame_time_max_ms(size, speed)
                     && delay + 1e-9 < tmax
                 {
-                    return Some(format!(
+                    return Some(tf!(
                         "delay {delay} ms가 최대 프레임 시간 {tmax:.2} ms보다 짧다"
                     ));
                 }
@@ -1125,17 +1122,26 @@ impl EncodingUi {
                     value: v
                         .trim()
                         .parse()
-                        .map_err(|_| "논리값은 0 이상의 정수여야 한다")?,
+                        .map_err(|_| crate::i18n::t("논리값은 0 이상의 정수여야 한다"))?,
                     text: t.clone(),
                 },
                 EntryUi::Physical(min, max, scale, offset, unit) => EncodingEntry::Physical {
-                    min: min.trim().parse().map_err(|_| "최솟값은 정수여야 한다")?,
-                    max: max.trim().parse().map_err(|_| "최댓값은 정수여야 한다")?,
-                    scale: scale.trim().parse().map_err(|_| "스케일은 숫자여야 한다")?,
+                    min: min
+                        .trim()
+                        .parse()
+                        .map_err(|_| t("최솟값은 정수여야 한다"))?,
+                    max: max
+                        .trim()
+                        .parse()
+                        .map_err(|_| t("최댓값은 정수여야 한다"))?,
+                    scale: scale
+                        .trim()
+                        .parse()
+                        .map_err(|_| t("스케일은 숫자여야 한다"))?,
                     offset: offset
                         .trim()
                         .parse()
-                        .map_err(|_| "오프셋은 숫자여야 한다")?,
+                        .map_err(|_| t("오프셋은 숫자여야 한다"))?,
                     unit: unit.clone(),
                 },
                 EntryUi::Bcd => EncodingEntry::Bcd,
@@ -1239,11 +1245,7 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
         ("스케줄 테이블", removed(bt, at)),
     ] {
         if !gone.is_empty() {
-            out.push(format!(
-                "{label} {}개 삭제: {}",
-                gone.len(),
-                gone.join(", ")
-            ));
+            out.push(tf!("{label} {}개 삭제: {}", gone.len(), gone.join(", ")));
         }
     }
     let count = |m: &LdfModel| {
@@ -1281,7 +1283,7 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
         ("노드 속성 블록", b.4, a.4),
     ] {
         if now < was {
-            out.push(format!("{label} {}개 정리", was - now));
+            out.push(tf!("{label} {}개 정리", was - now));
         }
     }
     out
@@ -1326,7 +1328,7 @@ pub fn inline_edit(
     let text = text.trim();
     let op = match (scope, sel) {
         (InlineScope::Object, Selection::Frame(id)) => {
-            let mut ui = FrameUi::from_frame(m, *id).ok_or("이 프레임은 편집할 수 없다")?;
+            let mut ui = FrameUi::from_frame(m, *id).ok_or(t("이 프레임은 편집할 수 없다"))?;
             match (key, &mut ui.kind) {
                 ("Name", _) => ui.name = text.to_owned(),
                 (
@@ -1336,9 +1338,9 @@ pub fn inline_edit(
                     *id = text.to_owned();
                 }
                 ("Size [Byte]", KindUi::Unconditional { size, .. }) => {
-                    *size = parse_uint(text).ok_or("크기는 정수여야 한다")?;
+                    *size = parse_uint(text).ok_or(t("크기는 정수여야 한다"))?;
                 }
-                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+                _ => return Err(t("이 항목은 바로 고칠 수 없다").to_owned()),
             }
             if let Some(p) = ui.problems().into_iter().next() {
                 return Err(p);
@@ -1346,12 +1348,12 @@ pub fn inline_edit(
             ui.to_op(m)?
         }
         (InlineScope::Object, Selection::Signal(id)) => {
-            let mut ui = SignalUi::from_signal(m, *id).ok_or("시그널을 찾을 수 없다")?;
+            let mut ui = SignalUi::from_signal(m, *id).ok_or(t("시그널을 찾을 수 없다"))?;
             match key {
                 "Name" => ui.name = text.to_owned(),
-                "Length [Bit]" => ui.size = parse_uint(text).ok_or("길이는 정수여야 한다")?,
+                "Length [Bit]" => ui.size = parse_uint(text).ok_or(t("길이는 정수여야 한다"))?,
                 "Init Value" => ui.init = text.to_owned(),
-                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+                _ => return Err(t("이 항목은 바로 고칠 수 없다").to_owned()),
             }
             if let Some(p) = ui.problems().into_iter().next() {
                 return Err(p);
@@ -1359,12 +1361,12 @@ pub fn inline_edit(
             ui.to_op()?
         }
         (InlineScope::Object, Selection::Node(id)) => {
-            let mut ui = NodeUi::from_node(m, *id).ok_or("노드를 찾을 수 없다")?;
+            let mut ui = NodeUi::from_node(m, *id).ok_or(t("노드를 찾을 수 없다"))?;
             match key {
                 "Name" => ui.name = text.to_owned(),
                 "Timebase [ms]" if ui.master => ui.timebase = text.to_owned(),
                 "Jitter [ms]" if ui.master => ui.jitter = text.to_owned(),
-                _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+                _ => return Err(t("이 항목은 바로 고칠 수 없다").to_owned()),
             }
             ui.to_op()?
         }
@@ -1374,26 +1376,26 @@ pub fn inline_edit(
                     .schedules
                     .get(*id)
                     .map(|t| t.name.clone())
-                    .ok_or("테이블을 찾을 수 없다")?,
+                    .ok_or(t("테이블을 찾을 수 없다"))?,
                 to: text.to_owned(),
             }
         }
         (InlineScope::Schedule, Selection::Slot(id, index)) if key == "Delay [ms]" => {
-            let delay_ms: f64 = text.parse().map_err(|_| "delay는 숫자여야 한다")?;
+            let delay_ms: f64 = text.parse().map_err(|_| t("delay는 숫자여야 한다"))?;
             if delay_ms < 0.0 {
-                return Err("delay는 0 이상이어야 한다".to_owned());
+                return Err(t("delay는 0 이상이어야 한다").to_owned());
             }
             EditOp::SetSlotDelay {
                 table: m
                     .schedules
                     .get(*id)
                     .map(|t| t.name.clone())
-                    .ok_or("테이블을 찾을 수 없다")?,
+                    .ok_or(t("테이블을 찾을 수 없다"))?,
                 index: *index,
                 delay_ms,
             }
         }
-        _ => return Err("이 항목은 바로 고칠 수 없다".to_owned()),
+        _ => return Err(t("이 항목은 바로 고칠 수 없다").to_owned()),
     };
     // 모델이 받아들이는지(이름 중복, 없는 대상 등)는 복사본에 적용해 본다
     match preview(m, &op).error {

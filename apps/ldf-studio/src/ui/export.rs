@@ -1,5 +1,6 @@
 //! 내보내기 창(FR-EXP-01/04): 대상 버전·줄바꿈·인코딩을 고르고, 오류가 남았으면 확인을 받는다.
 
+use crate::i18n::t;
 use egui::Context;
 use ldf_engine::{Eol, ExportFormat, ExportOptions, ModelSnapshot, Target, decode};
 use std::path::PathBuf;
@@ -18,7 +19,7 @@ enum Enc {
 impl Enc {
     fn label(self) -> &'static str {
         match self {
-            Enc::Keep => "원본과 같게",
+            Enc::Keep => t("원본과 같게"),
             Enc::Utf8 => "UTF-8",
             Enc::Utf8Bom => "UTF-8 (BOM)",
             Enc::Cp1252 => "Windows-1252",
@@ -73,7 +74,7 @@ pub struct ExportState {
 
 fn target_label(t: Target) -> &'static str {
     match t {
-        Target::Keep => "원본 버전 유지",
+        Target::Keep => crate::i18n::t("원본 버전 유지"),
         Target::V2_0 => "LIN 2.0",
         Target::V2_1 => "LIN 2.1",
         Target::V2_2 => "LIN 2.2",
@@ -86,32 +87,33 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
 
     if st.open {
         let mut open = true;
-        egui::Window::new("내보내기")
+        egui::Window::new(t("내보내기"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 let version = snap.model.header.protocol_version.as_deref().unwrap_or("?");
-                ui.label(format!(
+                ui.label(tf!(
                     "리비전 #{} — 원본 LIN {version}, {}",
-                    snap.revision.id, snap.revision.encoding
+                    snap.revision.id,
+                    snap.revision.encoding
                 ));
                 ui.add_space(6.0);
                 let target = st.target.unwrap_or_default();
                 egui::Grid::new("export-grid")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("형식");
+                        ui.label(t("형식"));
                         ui.horizontal(|ui| {
                             ui.radio_value(&mut st.format, ExportFormat::Ldf, "LDF");
-                            ui.radio_value(&mut st.format, ExportFormat::Json, "모델 JSON")
-                                .on_hover_text("다른 도구 연동용(docs/model.schema.json)");
+                            ui.radio_value(&mut st.format, ExportFormat::Json, t("모델 JSON"))
+                                .on_hover_text(t("다른 도구 연동용(docs/model.schema.json)"));
                         });
                         ui.end_row();
                         if st.format == ExportFormat::Json {
                             return;
                         }
-                        ui.label("대상 버전");
+                        ui.label(t("대상 버전"));
                         egui::ComboBox::from_id_salt("export-target")
                             .selected_text(target_label(target))
                             .show_ui(ui, |ui| {
@@ -120,14 +122,14 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                                 }
                             });
                         ui.end_row();
-                        ui.label("줄바꿈");
+                        ui.label(t("줄바꿈"));
                         ui.horizontal(|ui| {
-                            ui.radio_value(&mut st.eol, None, "원본과 같게");
+                            ui.radio_value(&mut st.eol, None, t("원본과 같게"));
                             ui.radio_value(&mut st.eol, Some(Eol::CrLf), "CRLF");
                             ui.radio_value(&mut st.eol, Some(Eol::Lf), "LF");
                         });
                         ui.end_row();
-                        ui.label("인코딩");
+                        ui.label(t("인코딩"));
                         egui::ComboBox::from_id_salt("export-enc")
                             .selected_text(st.enc.label())
                             .show_ui(ui, |ui| {
@@ -138,17 +140,23 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
                         ui.end_row();
                     });
                 if st.format == ExportFormat::Json {
-                    ui.weak("모델을 이름으로 서로 참조하는 JSON으로 내보낸다(UTF-8).");
+                    ui.weak(t("모델을 이름으로 서로 참조하는 JSON으로 내보낸다(UTF-8)."));
                 } else if target != Target::Keep {
-                    ui.weak("대상 버전에서 허용되지 않는 항목은 빠지고 경고로 알린다.");
+                    ui.weak(t(
+                        "대상 버전에서 허용되지 않는 항목은 빠지고 경고로 알린다.",
+                    ));
                 } else if !snap.dirty {
-                    ui.weak("편집하지 않았으므로 원문(주석·서식 포함)을 그대로 내보낸다.");
+                    ui.weak(t(
+                        "편집하지 않았으므로 원문(주석·서식 포함)을 그대로 내보낸다.",
+                    ));
                 } else {
-                    ui.weak("편집한 내용은 정규 서식으로 다시 쓰고, 주석은 같은 항목 옆에 남는다.");
+                    ui.weak(t(
+                        "편집한 내용은 정규 서식으로 다시 쓰고, 주석은 같은 항목 옆에 남는다.",
+                    ));
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("파일 선택…").clicked() {
+                    if ui.button(t("파일 선택…")).clicked() {
                         action = Some(ExportAction::Choose(ExportOptions {
                             format: st.format,
                             target,
@@ -165,27 +173,27 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut ExportState) -> Option
     }
 
     if let Some(b) = st.blocked.clone() {
-        egui::Window::new("오류가 남아 있다")
+        egui::Window::new(t("오류가 남아 있다"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.colored_label(
                     ui.visuals().error_fg_color,
-                    format!("이 리비전에는 오류 진단이 {}개 남아 있다.", b.errors),
+                    tf!("이 리비전에는 오류 진단이 {}개 남아 있다.", b.errors),
                 );
-                ui.label("그대로 내보내면 다른 도구에서 읽히지 않을 수 있다.");
+                ui.label(t("그대로 내보내면 다른 도구에서 읽히지 않을 수 있다."));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("그래도 내보내기").clicked() {
+                    if ui.button(t("그래도 내보내기")).clicked() {
                         action = Some(ExportAction::Retry(b.clone()));
                         st.blocked = None;
                     }
-                    if ui.button("Checker 열기").clicked() {
+                    if ui.button(t("Checker 열기")).clicked() {
                         action = Some(ExportAction::OpenChecker);
                         st.blocked = None;
                     }
-                    if ui.button("취소").clicked() {
+                    if ui.button(t("취소")).clicked() {
                         st.blocked = None;
                     }
                 });

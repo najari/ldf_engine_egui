@@ -1,5 +1,6 @@
 //! 상태 바: 왼쪽에 진단 요약, 오른쪽에 Master·Jitter·Timebase·Channel·속도·프로토콜.
 
+use crate::i18n::t;
 use crate::view::derive;
 use egui::{Align, Layout, Ui};
 use ldf_engine::ModelSnapshot;
@@ -11,17 +12,17 @@ pub fn show(ui: &mut Ui, snap: Option<&ModelSnapshot>, busy: bool, perf_ms: Opti
     ui.horizontal(|ui| {
         if busy {
             ui.spinner();
-            ui.label("읽는 중…");
+            ui.label(t("읽는 중…"));
             ui.separator();
         }
         let Some(snap) = snap else {
-            ui.weak("열린 파일 없음");
+            ui.weak(t("열린 파일 없음"));
             return;
         };
         clicked = diagnostics_summary(ui, snap);
         if let Some(ms) = perf_ms {
             ui.separator();
-            ui.label(format!("UI {ms:.1} ms/프레임"));
+            ui.label(tf!("UI {ms:.1} ms/프레임"));
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -79,7 +80,7 @@ fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) -> bool {
         count(Severity::Info),
     );
     if errors + warnings + infos == 0 {
-        ui.label("문제 없음");
+        ui.label(t("문제 없음"));
         return false;
     }
     let color = if errors > 0 {
@@ -87,12 +88,12 @@ fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) -> bool {
     } else {
         ui.visuals().warn_fg_color
     };
-    let text = format!(
+    let text = tf!(
         "진단 {}건: 오류 {errors} · 경고 {warnings} · 참고 {infos}",
         errors + warnings + infos
     );
     ui.add(egui::Label::new(egui::RichText::new(text).color(color)).sense(egui::Sense::click()))
-        .on_hover_text("눌러서 Checker 창(결과 목록과 텍스트 편집)을 연다")
+        .on_hover_text(t("눌러서 Checker 창(결과 목록과 텍스트 편집)을 연다"))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
 }

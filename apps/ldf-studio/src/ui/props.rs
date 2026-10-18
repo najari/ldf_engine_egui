@@ -2,6 +2,7 @@
 //! 고칠 수 있는 값(프레임 이름·ID·크기, 시그널 이름·길이·초기값, 노드 이름·타이밍, 슬롯 delay 등)은 더블클릭해 바로 고친다(FR-EDT-01):
 //! 입력하는 동안 틀리면 빨갛게 되고 사유가 보이며 적용되지 않는다. Enter로 적용, Esc로 취소.
 
+use crate::i18n::t;
 use crate::view::Selection;
 use crate::view::edit::{InlineScope, inline_edit, inline_editable};
 use crate::view::props::{PropKind, PropSection};
@@ -87,7 +88,7 @@ fn editable_cell(
     if !editing {
         let r = ui
             .add(egui::Label::new(value).sense(Sense::click()))
-            .on_hover_text("더블클릭해 바로 고친다");
+            .on_hover_text(t("더블클릭해 바로 고친다"));
         if r.double_clicked() {
             c.inline.active = Some((c.scope, key));
             c.inline.text = value.to_owned();
