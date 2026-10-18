@@ -3,7 +3,14 @@
 LIN Description File(LDF)을 열어 보고, 검사하고, 고치고, 버전별로 보관하는 Windows 데스크톱 도구.
 Rust로 만들고, UI는 [egui](https://github.com/emilk/egui), 저장소는 SQLite([rusqlite](https://github.com/rusqlite/rusqlite))를 쓴다.
 
-> 상태: 개발 초기. 설계와 요구사항이 확정되어 있고 구현은 PRD의 마일스톤(M1–M4) 순서로 진행한다.
+> 상태: **M1(읽기 전용 뷰어) 완료**, M2(검사기) 진행 중. 마일스톤은 [PRD](docs/prd.md)를 따른다.
+
+| 마일스톤 | 상태 |
+| --- | --- |
+| M1 읽기 전용 뷰어 (WP1–4) | 완료 — Vector Clean 10개 임포트·표시, 132개 파일 DB 왕복, UI 1.5 ms/프레임 |
+| M2 검사기 (WP5–7) | 진행 중 — Checker 창·`ldf-cli check`·엔진 연동 완료, 규칙 00xx–04xx와 코퍼스 하네스 구현 중 |
+| M3 편집·내보내기 (WP8–11) | 예정 |
+| M4 리비전·배포 (WP12–14) | 예정 (리비전 저장·열기는 M1에서 이미 동작) |
 
 ## 문서
 
@@ -28,6 +35,15 @@ apps/
   ldf-studio/   eframe(egui) 앱
   ldf-cli/      배치 검사·변환
 ```
+
+## 실행
+
+```powershell
+cargo run -p ldf-studio -- 파일.ldf      # GUI (인자 없이도 실행, 파일은 창에 끌어다 놓아도 된다)
+cargo run -p ldf-cli -- check 파일.ldf    # 배치 검사 (종료 코드 0/1/2/3)
+```
+
+환경 변수: `LDF_STUDIO_PROJECT`(프로젝트 DB 위치, 기본 `%LOCALAPPDATA%\LDFStudio\default.ldfdb`), `LDF_STUDIO_PERF=1`(상태 바에 프레임당 CPU 시간).
 
 ## 개발
 

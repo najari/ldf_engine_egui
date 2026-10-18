@@ -405,3 +405,18 @@ UI가 보내는 것은 항상 `Command` 하나, 돌아오는 것은 항상 새 �
 - [eframe](https://docs.rs/crate/eframe/latest), [egui\_dock](https://docs.rs/crate/egui_dock/latest), [egui\_ltreeview](https://docs.rs/crate/egui_ltreeview/latest), [egui\_code\_editor](https://docs.rs/crate/egui_code_editor/latest), [rfd](https://docs.rs/crate/rfd/latest)
 - [rusqlite](https://docs.rs/crate/rusqlite/latest), [rusqlite\_migration](https://docs.rs/crate/rusqlite_migration/latest), [winnow](https://docs.rs/crate/winnow/latest)
 - Vector LDF Explorer 1.4.12 로컬 설치본: `Exec32\Help01\LDFExplorer.chm`(Screen Layout, Navigation View, Schedule Area, Object Context Area, Edit Frame/Signal Dialog, LIN Consistency Checker), `Exec32\TestFiles\` 및 `HowTo.txt`
+
+## 부록. 구현 중 설계에서 달라진 점
+
+구현하면서 확인된 사실에 맞춰 달라진 부분이다. 요구사항과 충돌하면 [PRD](prd.md)가 우선한다.
+
+| 설계서 | 구현 | 이유 |
+| --- | --- | --- |
+| `ldf-model`은 다른 내부 크레이트에 의존하지 않는다 | `ldf-model`이 `ldf-syntax`에 의존한다 | lowering이 구문 트리를 읽는다. `ldf-syntax`는 내부 크레이트에 의존하지 않고, `ldf-check`·`ldf-writer`·`ldf-store`는 `ldf-model`에만 의존한다. |
+| 파서 전체를 `winnow`로 작성 | 렉서만 `winnow`(`LocatingSlice`), 구조 파서는 재귀 하강 | LDF 문법이 문장·블록으로 균일해 구조 파서가 섹션 의미를 몰라도 되고, 오류 복구(누락된 `}`, 중첩 한도)가 단순해진다. |
+| 테이블 PK는 전역 `id INTEGER` | `(revision_id, idx)` 복합 키, `idx`는 모델 arena 인덱스 | 저장 → 복원이 손실 없이 같은 모델을 만들고, 참조 무결성은 복합 외래키가 보장한다. |
+| 시그널 길이 등에 `CHECK` 범위 | 범위 `CHECK` 없음 | 깨진 LDF도 손실 없이 저장해야 한다. 범위는 검사 규칙(03xx)이 잡는다. |
+| 해석되지 않은 참조는 `unresolved_ref` 표 | 참조 컬럼 쌍 `*_idx` / `*_name` | 이름만 보관하는 쪽이 단순하고 손실이 없다. |
+| 프레임 ID `u8`, 신호 길이 `u16` | `u32` | 범위를 벗어난 값도 모델에 담아 규칙이 진단하게 한다. |
+| 이벤트는 `Loaded`/`Changed` | `Loaded`(임포트·열기·ApplyText) | 편집(M3) 전이라 `Changed`는 아직 없다. |
+| 의존성 라이선스는 MIT/Apache/BSD/Zlib/Unicode | egui 기본 글꼴 크레이트(`epaint_default_fonts`)에 한해 OFL-1.1, Ubuntu-font-1.0 허용 | 글꼴 파일에만 해당하는 허용형 라이선스. `deny.toml`에 예외로 명시. |
