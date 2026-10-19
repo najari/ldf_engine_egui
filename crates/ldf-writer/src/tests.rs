@@ -303,3 +303,47 @@ fn node_composition_is_dropped_for_2_0_but_composite_is_kept() {
     );
     assert!(w.text.contains("composite"));
 }
+
+#[test]
+fn dynamic_frames_round_trip_and_keep_their_place() {
+    for kw in ["dynamic_frames", "Dynamic_frames"] {
+        let src = format!(
+            "LIN_description_file;\nLIN_protocol_version = \"2.0\";\nNodes {{ Master: M, 1 ms, 0 ms; Slaves: A; }}\nSignals {{ S: 8, 0, M, A; }}\n{kw} {{ 1, 0x2 }}\nFrames {{ F: 1, M, 1 {{ S, 0; }} }}\n"
+        );
+        let m = load(&src).model;
+        assert!(m.dynamic_frames.is_some(), "{kw}");
+        let w = write(&m, &WriteOptions::default()).text;
+        assert!(semantically_equal(&m, &load(&w).model), "{kw}\n{w}");
+        // 순서: Signals 다음, Frames 앞
+        let pos = |s: &str| w.find(s).unwrap_or(usize::MAX);
+        assert!(pos("Signals") < pos(kw) && pos(kw) < pos("Frames"), "{w}");
+        assert!(w.contains("0x01, 0x02"), "{w}");
+    }
+}
+
+#[test]
+fn dynamic_frames_are_kept_for_2_0_and_dropped_for_2_1_and_later() {
+    let m = load(
+        "LIN_description_file;\nLIN_protocol_version = \"2.0\";\nNodes { Master: M, 1 ms, 0 ms; }\ndynamic_frames { 1 }\n",
+    )
+    .model;
+    let to = |target| {
+        write(
+            &m,
+            &WriteOptions {
+                target,
+                ..Default::default()
+            },
+        )
+    };
+    assert!(to(Target::V2_0).text.contains("dynamic_frames"));
+    for target in [Target::V2_1, Target::V2_2] {
+        let w = to(target);
+        assert!(!w.text.contains("dynamic_frames"), "{target:?}");
+        assert!(
+            w.warnings.iter().any(|x| x.contains("dynamic_frames")),
+            "{:?}",
+            w.warnings
+        );
+    }
+}

@@ -111,8 +111,8 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         .query_row(
             "SELECT id, project_id, parent_id, label, source_name, created_at, protocol_ver, \
              language_ver, speed_bps, encoding, has_marker, ldf_file_revision, big_endian, \
-             channel, source_text, section_order, lower_notes, leading_comment, composition_json \
-             FROM ldf_revision WHERE id = ?1",
+             channel, source_text, section_order, lower_notes, leading_comment, composition_json, \
+             dynamic_frames_json FROM ldf_revision WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
@@ -126,6 +126,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
                     r.get::<_, String>(16)?,
                     r.get::<_, String>(17)?,
                     r.get::<_, Option<String>>(18)?,
+                    r.get::<_, Option<String>>(19)?,
                 ))
             },
         )
@@ -141,6 +142,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         notes,
         leading_comment,
         composition,
+        dynamic_frames,
     )) = head
     else {
         return Err(StoreError::NotFound(format!("리비전 {id}")));
@@ -159,6 +161,10 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
     model.section_order = serde_json::from_str(&order)?;
     model.notes = serde_json::from_str(&notes)?;
     model.composition = composition
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
+    model.dynamic_frames = dynamic_frames
         .as_deref()
         .map(serde_json::from_str)
         .transpose()?;

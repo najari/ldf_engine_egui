@@ -58,8 +58,12 @@ impl Rule for R0021 {
 
         if !matches!(file, Proto::Unknown | Proto::Oem) {
             let composition = m.composition.iter().map(|c| (c.keyword.as_str(), c.span));
+            let dynamic = m
+                .dynamic_frames
+                .iter()
+                .map(|d| (d.keyword.as_str(), d.span));
             let raw = m.unknown_sections.iter().map(|s| (s.name.as_str(), s.span));
-            for (name, span) in composition.chain(raw) {
+            for (name, span) in composition.chain(dynamic).chain(raw) {
                 if ignored_section(name, file) {
                     warn(span, format!("`{name}` 섹션은 이 LIN 버전에서 무시된다"));
                 }

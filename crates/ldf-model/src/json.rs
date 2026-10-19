@@ -231,6 +231,8 @@ pub fn to_json(m: &LdfModel) -> Value {
                     .collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })),
+        "dynamic_frames": m.dynamic_frames.as_ref()
+            .map(|d| json!({ "keyword": d.keyword, "ids": d.ids })),
         "unknown_sections": m.unknown_sections.iter()
             .map(|s| json!({ "name": s.name, "text": s.text })).collect::<Vec<_>>(),
     })

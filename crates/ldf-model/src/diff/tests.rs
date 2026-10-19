@@ -269,3 +269,38 @@ fn composition_changes_are_reported_per_configuration() {
     );
     assert!(diff(&a, &a).is_empty());
 }
+
+#[test]
+fn dynamic_frame_changes_are_reported_as_one_object() {
+    let a = load(&format!("{A}dynamic_frames {{ 1 }}")).model;
+    let b = load(&format!("{A}dynamic_frames {{ 1, 2 }}")).model;
+    let d = diff(&a, &b);
+    let e = find(&d, ObjectKind::DynamicFrames, "dynamic_frames").expect("dynamic_frames");
+    assert_eq!(e.change, Change::Changed);
+    let f = field(e, "ids").expect("ids");
+    assert_eq!(
+        (f.before.as_str(), f.after.as_str()),
+        ("0x01", "0x01, 0x02")
+    );
+    // 섹션이 새로 생기거나 없어지는 경우
+    let none = load(A).model;
+    assert_eq!(
+        find(
+            &diff(&none, &a),
+            ObjectKind::DynamicFrames,
+            "dynamic_frames"
+        )
+        .map(|e| &e.change),
+        Some(&Change::Added)
+    );
+    assert_eq!(
+        find(
+            &diff(&a, &none),
+            ObjectKind::DynamicFrames,
+            "dynamic_frames"
+        )
+        .map(|e| &e.change),
+        Some(&Change::Removed)
+    );
+    assert!(diff(&a, &a).is_empty());
+}

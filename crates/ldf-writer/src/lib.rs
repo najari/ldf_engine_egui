@@ -126,10 +126,16 @@ fn adapt(model: &LdfModel, target: Target) -> (LdfModel, Vec<String>) {
         m.composition = None;
         dropped_names.push("Node_composition".to_owned());
     }
+    // 동적 프레임은 LIN 2.0 파일에만 있다(검사 규칙 0101)
+    if matches!(target, Target::V2_1 | Target::V2_2)
+        && let Some(d) = m.dynamic_frames.take()
+    {
+        dropped_names.push(d.keyword);
+    }
     m.unknown_sections.retain(|s| {
         let drop = match s.name.as_str() {
             "Node_composition" => target == Target::V2_0,
-            "dynamic_frames" | "Dynamic_frames" => matches!(target, Target::V2_0 | Target::V2_1),
+            "dynamic_frames" | "Dynamic_frames" => matches!(target, Target::V2_1 | Target::V2_2),
             _ => false,
         };
         if drop {
@@ -146,12 +152,13 @@ fn adapt(model: &LdfModel, target: Target) -> (LdfModel, Vec<String>) {
     (m, warnings)
 }
 
-const CANONICAL_SECTIONS: [&str; 14] = [
+const CANONICAL_SECTIONS: [&str; 15] = [
     "Nodes",
     "composite",
     "Node_composition",
     "Signals",
     "Diagnostic_signals",
+    "dynamic_frames",
     "Frames",
     "Sporadic_frames",
     "Event_triggered_frames",
@@ -169,6 +176,9 @@ fn section_text(m: &LdfModel, name: &str, in_order: bool) -> Option<String> {
     // 모델로 읽은 노드 구성은 원문 보관 섹션보다 앞에 쓴다(같은 이름이 둘 이상일 때)
     if let Some(c) = m.composition.as_ref().filter(|c| c.keyword == name) {
         raw.push(emit::composition(c));
+    }
+    if let Some(d) = m.dynamic_frames.as_ref().filter(|d| d.keyword == name) {
+        raw.push(emit::dynamic_frames(d));
     }
     raw.extend(
         m.unknown_sections

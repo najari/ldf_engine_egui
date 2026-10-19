@@ -602,6 +602,72 @@ fn invalid_compositions_are_refused_and_leave_the_model_alone() {
     }
 }
 
+fn dynamic(keyword: &str, ids: &[u32]) -> DynamicFrames {
+    DynamicFrames {
+        keyword: keyword.to_owned(),
+        ids: ids.to_vec(),
+        span: None,
+    }
+}
+
+#[test]
+fn dynamic_frames_can_be_set_replaced_and_removed() {
+    let mut m = model();
+    assert!(m.dynamic_frames.is_none());
+    let d = dynamic("dynamic_frames", &[1, 0x10]);
+    EditOp::SetDynamicFrames(Some(d.clone()))
+        .apply(&mut m)
+        .expect("set");
+    assert_eq!(m.dynamic_frames, Some(d));
+    // 새 섹션은 Frames 바로 앞에 놓인다
+    let frames = m
+        .section_order
+        .iter()
+        .position(|n| n == "Frames")
+        .expect("Frames");
+    assert_eq!(m.section_order[frames - 1], "dynamic_frames");
+    // 바꿔도 자리를 지키고 중복이 생기지 않는다
+    EditOp::SetDynamicFrames(Some(dynamic("dynamic_frames", &[2])))
+        .apply(&mut m)
+        .expect("replace");
+    assert_eq!(
+        m.section_order
+            .iter()
+            .filter(|n| n.as_str() == "dynamic_frames")
+            .count(),
+        1
+    );
+    assert_eq!(
+        m.dynamic_frames.as_ref().map(|d| d.ids.clone()),
+        Some(vec![2])
+    );
+    EditOp::SetDynamicFrames(None)
+        .apply(&mut m)
+        .expect("remove");
+    assert!(m.dynamic_frames.is_none());
+    assert!(!m.section_order.iter().any(|n| n == "dynamic_frames"));
+}
+
+#[test]
+fn invalid_dynamic_frames_are_refused_and_leave_the_model_alone() {
+    let before = model();
+    for d in [
+        dynamic("dynamic_frames", &[]),
+        dynamic("dynamic_frames", &[0x40]),
+        dynamic("dynamic_frames", &[1, 1]),
+        dynamic("other", &[1]),
+    ] {
+        let mut m = before.clone();
+        assert!(
+            EditOp::SetDynamicFrames(Some(d.clone()))
+                .apply(&mut m)
+                .is_err(),
+            "{d:?}"
+        );
+        assert_eq!(m, before);
+    }
+}
+
 #[test]
 fn renaming_and_deleting_nodes_follow_into_the_composition() {
     let mut m = model();

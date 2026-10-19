@@ -444,6 +444,54 @@ fn composition_with_an_unexpected_shape_stays_raw() {
 }
 
 #[test]
+fn dynamic_frames_with_ids_are_modelled() {
+    let l = load("dynamic_frames { 1, 0x2 }");
+    assert!(l.diagnostics.is_empty(), "{:?}", l.diagnostics);
+    let d = l.model.dynamic_frames.expect("dynamic_frames");
+    assert_eq!(
+        (d.keyword.as_str(), d.ids.as_slice()),
+        ("dynamic_frames", &[1, 2][..])
+    );
+    assert!(l.model.unknown_sections.is_empty());
+    // 대문자 이름과, 쉼표·`;` 없이 쓴 한 개짜리
+    let d = load("Dynamic_frames { 0x3F; }")
+        .model
+        .dynamic_frames
+        .expect("dynamic_frames");
+    assert_eq!(
+        (d.keyword.as_str(), d.ids.as_slice()),
+        ("Dynamic_frames", &[0x3F][..])
+    );
+    assert_eq!(
+        load("dynamic_frames {\n  1\n}")
+            .model
+            .dynamic_frames
+            .map(|d| d.ids),
+        Some(vec![1])
+    );
+}
+
+#[test]
+fn dynamic_frames_with_an_unexpected_shape_stay_raw() {
+    for src in [
+        "dynamic_frames { }",
+        "dynamic_frames { Dyn: 0x10; }",
+        "dynamic_frames { 1, A }",
+        "dynamic_frames { -1 }",
+        "dynamic_frames { 99999999999 }",
+        "dynamic_frames { 1 { 2 } }",
+    ] {
+        let l = load(src);
+        assert!(l.model.dynamic_frames.is_none(), "{src}");
+        assert_eq!(l.model.unknown_sections.len(), 1, "{src}");
+    }
+    // 두 번째 섹션은 원문으로 남는다
+    let l = load("dynamic_frames { 1 }\ndynamic_frames { 2 }");
+    assert_eq!(l.model.dynamic_frames.map(|d| d.ids), Some(vec![1]));
+    assert_eq!(l.model.unknown_sections.len(), 1);
+}
+
+#[test]
 fn section_order_is_recorded() {
     let m = loaded().model;
     assert_eq!(

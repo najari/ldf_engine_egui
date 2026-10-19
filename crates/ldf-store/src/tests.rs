@@ -57,6 +57,7 @@ fn assert_same(a: &ldf_model::LdfModel, b: &ldf_model::LdfModel) {
     assert_eq!(a.encodings, b.encodings, "encodings");
     assert_eq!(a.schedules, b.schedules, "schedules");
     assert_eq!(a.composition, b.composition, "composition");
+    assert_eq!(a.dynamic_frames, b.dynamic_frames, "dynamic_frames");
     assert_eq!(a.unknown_sections, b.unknown_sections, "unknown_sections");
     assert_eq!(a.section_order, b.section_order, "section_order");
 }
@@ -129,6 +130,22 @@ fn composition_survives_in_both_forms() {
             .composition
             .is_none()
     );
+}
+
+#[test]
+fn dynamic_frames_survive_with_and_without_ids() {
+    let mut store = Store::open_in_memory().expect("open");
+    let project = store.ensure_project("p").expect("project");
+    // ID 목록은 모델로, 그렇지 않은 모양은 원문 보관 섹션으로 돌아온다
+    let (id, loaded) = save(&mut store, project, None, "dynamic_frames { 1, 0x2 }");
+    let back = store.load_revision(id).expect("load");
+    assert_same(&back.model, &loaded.model);
+    assert_eq!(back.model.dynamic_frames.map(|d| d.ids), Some(vec![1, 2]));
+    let (id, loaded) = save(&mut store, project, None, "dynamic_frames { Dyn: 0x10; }");
+    let back = store.load_revision(id).expect("load");
+    assert_same(&back.model, &loaded.model);
+    assert!(back.model.dynamic_frames.is_none());
+    assert_eq!(back.model.unknown_sections.len(), 1);
 }
 
 #[test]

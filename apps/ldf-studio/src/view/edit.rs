@@ -6,9 +6,9 @@
 use crate::i18n::t;
 use crate::view::Selection;
 use ldf_model::{
-    AttrsDraft, CompositeNode, Composition, Configuration, Diagnostic, EditOp, EncodingEntry,
-    FrameDraft, FrameDraftKind, FrameId, FrameKind, InitValue, LdfModel, NodeId, NodeRole,
-    ProductId, Ref, SignalDraft, SignalId, SignalKind, SlotDraft, SlotEntry,
+    AttrsDraft, CompositeNode, Composition, Configuration, Diagnostic, DynamicFrames, EditOp,
+    EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind, InitValue, LdfModel, NodeId,
+    NodeRole, ProductId, Ref, SignalDraft, SignalId, SignalKind, SlotDraft, SlotEntry,
 };
 use std::collections::BTreeMap;
 
@@ -1278,6 +1278,64 @@ pub fn parse_composition(
         keyword: keyword.to_owned(),
         configurations,
         colon_form,
+        span: None,
+    }))
+}
+
+// ---- 동적 프레임 --------------------------------------------------------------------------------
+
+/// 동적 프레임 대화상자의 초안. ID들을 쉼표로 구분한 한 줄 글로 고친다(`0x01, 0x02`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DynamicFramesUi {
+    /// 고치는 글.
+    pub text: String,
+    keyword: String,
+}
+
+impl DynamicFramesUi {
+    /// 지금 모델의 동적 프레임으로 초안을 만든다. 없으면 빈 글이다.
+    pub fn from_model(m: &LdfModel) -> Self {
+        match &m.dynamic_frames {
+            Some(d) => Self {
+                text: d
+                    .ids
+                    .iter()
+                    .map(|id| format!("{id:#04X}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                keyword: d.keyword.clone(),
+            },
+            None => Self {
+                text: String::new(),
+                keyword: "dynamic_frames".to_owned(),
+            },
+        }
+    }
+
+    /// 보낼 연산. 글이 비어 있으면 동적 프레임을 지운다.
+    pub fn to_op(&self) -> Result<EditOp, String> {
+        Ok(EditOp::SetDynamicFrames(parse_dynamic_frames(
+            &self.text,
+            &self.keyword,
+        )?))
+    }
+}
+
+/// 글을 동적 프레임으로 읽는다. 빈 글이면 `None`. 범위·중복 같은 모델 규칙은 연산이 따진다.
+pub fn parse_dynamic_frames(text: &str, keyword: &str) -> Result<Option<DynamicFrames>, String> {
+    let mut ids = Vec::new();
+    for tok in text
+        .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+    {
+        match parse_uint(tok) {
+            Some(id) => ids.push(id),
+            None => return Err(tf!("`{tok}`은(는) 프레임 ID(숫자)가 아니다")),
+        }
+    }
+    Ok((!ids.is_empty()).then(|| DynamicFrames {
+        keyword: keyword.to_owned(),
+        ids,
         span: None,
     }))
 }

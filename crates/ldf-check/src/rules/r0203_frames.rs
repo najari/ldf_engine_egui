@@ -196,6 +196,29 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_ids_are_allowed_when_declared_in_dynamic_frames() {
+        let src = |dynamic: &str| {
+            format!(
+                "LIN_protocol_version = \"2.0\";\n\
+                 Nodes {{ Master: M, 1 ms, 0 ms; Slaves: S; }}\n\
+                 Signals {{ A: 8, 0, M, S; B: 8, 0, M, S; }}\n{dynamic}\n\
+                 Frames {{ F1: 1, M, 1 {{ A, 0; }} F2: 1, M, 1 {{ B, 0; }} }}\n\
+                 Schedule_tables {{ T {{ F1 delay 10 ms; F2 delay 10 ms; }} }}"
+            )
+        };
+        let count = |text: &str| {
+            let mut out = Vec::new();
+            RULE.check(&load(text).model, &mut out);
+            out.len()
+        };
+        assert_eq!(count(&src("")), 2);
+        assert_eq!(count(&src("dynamic_frames { 1 }")), 0);
+        // ID 목록이 아니라 원문으로 남은 섹션도 같다
+        assert_eq!(count(&src("dynamic_frames { 1, Dyn }")), 0);
+        assert_eq!(count(&src("dynamic_frames { 2 }")), 2);
+    }
+
+    #[test]
     fn sporadic_must_come_from_the_master() {
         let src = "LIN_protocol_version = \"2.2\";\nNodes { Master: M, 1 ms, 0 ms; Slaves: S; }\n\
                    Signals { A: 8, 0, M, S; C: 8, 0, S, M; }\n\

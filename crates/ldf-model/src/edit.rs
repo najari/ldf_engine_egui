@@ -8,9 +8,9 @@
 
 use crate::arena::ArenaId;
 use crate::{
-    Composition, ConfigurableFrame, EncodingEntry, EncodingId, EncodingType, Frame, FrameId,
-    FrameKind, FrameSignal, InitValue, LdfModel, Node, NodeAttrs, NodeId, NodeRole, ProductId, Ref,
-    ScheduleId, ScheduleTable, Signal, SignalId, SignalKind, Slot, SlotEntry,
+    Composition, ConfigurableFrame, DynamicFrames, EncodingEntry, EncodingId, EncodingType, Frame,
+    FrameId, FrameKind, FrameSignal, InitValue, LdfModel, Node, NodeAttrs, NodeId, NodeRole,
+    ProductId, Ref, ScheduleId, ScheduleTable, Signal, SignalId, SignalKind, Slot, SlotEntry,
 };
 use std::fmt;
 
@@ -173,6 +173,8 @@ pub enum EditOp {
     SetChannelName(Option<String>),
     /// 노드 구성(`composite`/`Node_composition`)을 통째로 바꾼다. `None`이면 지운다.
     SetComposition(Option<Composition>),
+    /// 동적 프레임(`dynamic_frames`)을 통째로 바꾼다. `None`이면 지운다.
+    SetDynamicFrames(Option<DynamicFrames>),
     /// 마스터의 타임베이스·지터(ms).
     SetMasterTiming {
         /// 마스터 이름.
@@ -704,24 +706,28 @@ fn drop_logical_node(m: &mut LdfModel, name: &str) {
     }
 }
 
-/// `section_order`에 노드 구성 섹션 이름이 모델과 맞게 한 번만 있게 한다.
-/// 이미 있던 자리를 지키고, 새로 생겼으면 `Nodes` 바로 뒤에 둔다.
-fn sync_composition_order(m: &mut LdfModel) {
-    const NAMES: [&str; 2] = ["composite", "Node_composition"];
+/// `section_order`에 `names` 중 하나인 섹션 이름이 모델과 맞게 한 번만 있게 한다. `own`은 모델로 읽은 섹션의 이름이다.
+/// 이미 있던 자리를 지키고, 새로 생겼으면 `default_at`이 알려 주는 자리에 둔다.
+fn sync_section_order(
+    m: &mut LdfModel,
+    names: &[&str],
+    own: Option<&str>,
+    default_at: impl Fn(&[String]) -> Option<usize>,
+) {
     let first = m
         .section_order
         .iter()
-        .position(|n| NAMES.contains(&n.as_str()));
+        .position(|n| names.contains(&n.as_str()));
     let raw_names: Vec<String> = m
         .unknown_sections
         .iter()
-        .filter(|s| NAMES.contains(&s.name.as_str()))
+        .filter(|s| names.contains(&s.name.as_str()))
         .map(|s| s.name.clone())
         .collect();
-    m.section_order.retain(|n| !NAMES.contains(&n.as_str()));
+    m.section_order.retain(|n| !names.contains(&n.as_str()));
     let mut wanted: Vec<String> = raw_names;
-    if let Some(c) = &m.composition {
-        wanted.insert(0, c.keyword.clone());
+    if let Some(keyword) = own {
+        wanted.insert(0, keyword.to_owned());
     }
     wanted.dedup();
     if wanted.is_empty() {
@@ -729,16 +735,66 @@ fn sync_composition_order(m: &mut LdfModel) {
     }
     let at = first
         .map(|i| i.min(m.section_order.len()))
-        .or_else(|| {
-            m.section_order
-                .iter()
-                .position(|n| n == "Nodes")
-                .map(|i| i + 1)
-        })
+        .or_else(|| default_at(&m.section_order))
         .unwrap_or(m.section_order.len());
     for (k, n) in wanted.into_iter().enumerate() {
         m.section_order.insert(at + k, n);
     }
+}
+
+/// 노드 구성 섹션 이름을 정리한다. 새로 생기면 `Nodes` 바로 뒤에 둔다.
+fn sync_composition_order(m: &mut LdfModel) {
+    let own = m.composition.as_ref().map(|c| c.keyword.clone());
+    sync_section_order(
+        m,
+        &["composite", "Node_composition"],
+        own.as_deref(),
+        |order| order.iter().position(|n| n == "Nodes").map(|i| i + 1),
+    );
+}
+
+/// 동적 프레임 섹션 이름을 정리한다. 새로 생기면 `Frames` 바로 앞에 둔다.
+fn sync_dynamic_frames_order(m: &mut LdfModel) {
+    let own = m.dynamic_frames.as_ref().map(|d| d.keyword.clone());
+    sync_section_order(
+        m,
+        &["dynamic_frames", "Dynamic_frames"],
+        own.as_deref(),
+        |order| order.iter().position(|n| n == "Frames"),
+    );
+}
+
+/// 동적 프레임을 검사해 모델에 넣는다. ID는 LIN 프레임 ID 범위(0–0x3F)이고 겹치지 않아야 한다.
+fn set_dynamic_frames(m: &mut LdfModel, d: Option<&DynamicFrames>) -> Result {
+    let Some(d) = d else {
+        m.dynamic_frames = None;
+        sync_dynamic_frames_order(m);
+        return Ok(());
+    };
+    if !matches!(d.keyword.as_str(), "dynamic_frames" | "Dynamic_frames") {
+        return invalid(format!(
+            "동적 프레임의 섹션 이름은 dynamic_frames여야 한다: `{}`",
+            d.keyword
+        ));
+    }
+    if d.ids.is_empty() {
+        return invalid("동적 프레임에 ID가 하나는 있어야 한다");
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for id in &d.ids {
+        if *id > 0x3F {
+            return invalid(format!("동적 프레임 ID는 0–0x3F 범위여야 한다: {id:#04X}"));
+        }
+        if !seen.insert(*id) {
+            return invalid(format!("동적 프레임 ID {id:#04X}이(가) 두 번 나온다"));
+        }
+    }
+    m.dynamic_frames = Some(DynamicFrames {
+        span: None,
+        ..d.clone()
+    });
+    sync_dynamic_frames_order(m);
+    Ok(())
 }
 
 /// 노드 구성을 검사해 모델에 넣는다. 이름은 식별자여야 하고 구성 안에서 겹치지 않아야 한다.
@@ -989,6 +1045,7 @@ impl EditOp {
             EditOp::SetSpeed(_) => "set_speed",
             EditOp::SetChannelName(_) => "set_channel_name",
             EditOp::SetComposition(_) => "set_composition",
+            EditOp::SetDynamicFrames(_) => "set_dynamic_frames",
             EditOp::SetMasterTiming { .. } => "set_master_timing",
             EditOp::AddSlave(_) => "add_slave",
             EditOp::RenameNode { .. } => "rename_node",
@@ -1034,6 +1091,7 @@ impl EditOp {
             EditOp::SetSpeed(bps) => m.header.speed_bps = Some(*bps),
             EditOp::SetChannelName(name) => m.header.channel_name = name.clone(),
             EditOp::SetComposition(c) => set_composition(m, c.as_ref())?,
+            EditOp::SetDynamicFrames(d) => set_dynamic_frames(m, d.as_ref())?,
             EditOp::SetMasterTiming {
                 node,
                 timebase_ms,

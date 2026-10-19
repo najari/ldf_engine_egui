@@ -8,7 +8,7 @@ use super::edit::{DeleteUi, Dialog, EditState, Outcome, show};
 use super::export::{self, Blocked, ExportAction, ExportState};
 use super::revisions::{self, DiffShown, RevAction, RevState};
 use super::{UiState, status};
-use crate::view::edit::{CompositionUi, FrameUi};
+use crate::view::edit::{CompositionUi, DynamicFramesUi, FrameUi};
 use crate::view::{NavTab, SelKey, Selection};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -160,6 +160,47 @@ fn composition_dialog_previews_new_findings_but_still_allows_ok() {
     h.get_by_label("이 변경으로 새로 생기는 검사 결과:");
     h.get_by_label_contains("[0109]");
     assert!(!h.get_by_label("OK").accesskit_node().is_disabled());
+}
+
+// ---- 동적 프레임 대화상자 ------------------------------------------------------------------------
+
+#[test]
+fn dynamic_frames_dialog_sends_the_edited_ids_as_one_operation() {
+    let snap = snapshot(SAMPLE);
+    let mut ui = DynamicFramesUi::from_model(&snap.model);
+    ui.text = "1, 0x2".to_owned();
+    let mut h = dialog_harness(Dialog::DynamicFrames(ui), snap);
+    h.run();
+    h.get_by_label("동적 프레임");
+    h.get_by_label("OK").click();
+    h.run();
+    let sent = &h.state().sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let EditOp::SetDynamicFrames(Some(d)) = &sent[0] else {
+        panic!("{:?}", sent[0]);
+    };
+    assert_eq!(d.ids, [1, 2]);
+    assert!(h.state().st.dialog.is_none(), "확인하면 대화상자가 닫힌다");
+}
+
+#[test]
+fn dynamic_frames_dialog_shows_why_it_cannot_be_confirmed() {
+    for (text, why) in [
+        ("1, abc", "프레임 ID(숫자)가 아니다"),
+        ("0x40", "0–0x3F 범위여야 한다"),
+        ("3, 3", "두 번 나온다"),
+    ] {
+        let snap = snapshot(SAMPLE);
+        let mut ui = DynamicFramesUi::from_model(&snap.model);
+        ui.text = text.to_owned();
+        let mut h = dialog_harness(Dialog::DynamicFrames(ui), snap);
+        h.run();
+        h.get_by_label_contains(why);
+        assert!(
+            h.get_by_label("OK").accesskit_node().is_disabled(),
+            "{text}"
+        );
+    }
 }
 
 #[test]

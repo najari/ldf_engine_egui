@@ -59,6 +59,20 @@
         }
       ]
     },
+    "dynamic_frames": {
+      "description": "동적 프레임 ID 목록(dynamic_frames, LIN 2.0). 없으면 null. 이 ID는 다른 프레임과 겹쳐도 된다.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["keyword", "ids"],
+          "properties": {
+            "keyword": { "enum": ["dynamic_frames", "Dynamic_frames"] },
+            "ids": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+          }
+        }
+      ]
+    },
     "unknown_sections": {
       "type": "array",
       "items": {

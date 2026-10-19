@@ -59,12 +59,19 @@ pub(crate) fn numbers(text: &str) -> Vec<u64> {
     out
 }
 
-/// `dynamic_frames { 1, 2 }`가 선언한 동적 프레임 ID들(LIN 2.0).
+/// `dynamic_frames { 1, 2 }`가 선언한 동적 프레임 ID들(LIN 2.0). 모델로 읽은 섹션과, ID 목록이 아니라 원문으로 남은 섹션을 모두 본다.
 pub(crate) fn dynamic_frame_ids(m: &LdfModel) -> Vec<u64> {
-    section(m, &["dynamic_frames"])
+    let mut ids: Vec<u64> = m
+        .dynamic_frames
         .iter()
-        .flat_map(|s| numbers(body(&s.text)))
-        .collect()
+        .flat_map(|d| d.ids.iter().map(|id| u64::from(*id)))
+        .collect();
+    ids.extend(
+        section(m, &["dynamic_frames"])
+            .iter()
+            .flat_map(|s| numbers(body(&s.text))),
+    );
+    ids
 }
 
 /// 슬롯 명령 원문 `Name { a, b, c } delay 10 ms ;`의 인자(중괄호 안 쉼표 구분 토큰, 공백 제거).

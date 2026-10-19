@@ -9,7 +9,7 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
 use crate::view::edit::{
-    CompositionUi, EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi,
+    CompositionUi, DynamicFramesUi, EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi,
 };
 use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
@@ -311,6 +311,15 @@ impl StudioApp {
     fn open_composition(&mut self) {
         if let Some(snap) = &self.snapshot {
             self.st.edit.dialog = Some(Dialog::Composition(CompositionUi::from_model(&snap.model)));
+        }
+    }
+
+    /// 동적 프레임(dynamic_frames) 대화상자를 연다.
+    fn open_dynamic_frames(&mut self) {
+        if let Some(snap) = &self.snapshot {
+            self.st.edit.dialog = Some(Dialog::DynamicFrames(DynamicFramesUi::from_model(
+                &snap.model,
+            )));
         }
     }
 
@@ -791,6 +800,13 @@ impl StudioApp {
                     .clicked()
                 {
                     self.open_composition();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new(t("동적 프레임…")))
+                    .clicked()
+                {
+                    self.open_dynamic_frames();
                     ui.close();
                 }
                 ui.separator();

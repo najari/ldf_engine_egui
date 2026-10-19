@@ -26,6 +26,8 @@ pub enum ObjectKind {
     NodeAttributes,
     /// 노드 구성(configuration 하나).
     Composition,
+    /// 동적 프레임 ID 목록.
+    DynamicFrames,
 }
 
 impl ObjectKind {
@@ -40,6 +42,7 @@ impl ObjectKind {
             ObjectKind::Schedule => "Schedule",
             ObjectKind::NodeAttributes => "Node attributes",
             ObjectKind::Composition => "Composition",
+            ObjectKind::DynamicFrames => "Dynamic frames",
         }
     }
 }
@@ -444,6 +447,18 @@ fn composition_items(m: &LdfModel) -> Vec<Item> {
         .collect()
 }
 
+/// 동적 프레임: 섹션 하나가 객체 하나이고 ID 목록이 필드다.
+fn dynamic_frames_items(m: &LdfModel) -> Vec<Item> {
+    m.dynamic_frames
+        .iter()
+        .map(|d| Item {
+            name: "dynamic_frames".to_owned(),
+            fields: vec![f("ids", join(d.ids.iter().map(|id| format!("{id:#04X}"))))],
+            key: None,
+        })
+        .collect()
+}
+
 fn schedule_items(m: &LdfModel) -> Vec<Item> {
     let node = |r: &Ref<crate::NodeId>| rname(r, |id| m.nodes.get(id).map(|n| n.name.clone()));
     let frame = |r: &Ref<crate::FrameId>| rname(r, |id| m.frames.get(id).map(|n| n.name.clone()));
@@ -588,6 +603,12 @@ pub fn diff(a: &LdfModel, b: &LdfModel) -> Diff {
         ObjectKind::Composition,
         &composition_items(a),
         &composition_items(b),
+        &mut entries,
+    );
+    compare(
+        ObjectKind::DynamicFrames,
+        &dynamic_frames_items(a),
+        &dynamic_frames_items(b),
         &mut entries,
     );
     Diff { entries }

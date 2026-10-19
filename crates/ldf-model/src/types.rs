@@ -427,6 +427,19 @@ pub struct Composition {
     pub span: Option<Span>,
 }
 
+/// 동적 프레임 섹션(`dynamic_frames { 1, 2 }`). LIN 2.2A 명세에는 없고 LIN 2.0 파일에 쓰이는 형식이다.
+///
+/// 이 ID들은 프레임 ID가 겹쳐도 되는 것으로 본다(`ldf-check` 0203·0406).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DynamicFrames {
+    /// 섹션 이름: `dynamic_frames` 또는 `Dynamic_frames`.
+    pub keyword: String,
+    /// 동적 프레임 ID들(원문 순서).
+    pub ids: Vec<u32>,
+    /// 원문 위치. 편집으로 생겼으면 `None`.
+    pub span: Option<Span>,
+}
+
 /// 모델이 해석하지 않는 섹션(왕복 보존용).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawSection {
@@ -481,6 +494,9 @@ pub struct LdfModel {
     /// 노드 구성(`composite`/`Node_composition`). 모양이 맞지 않는 섹션은 `unknown_sections`에 원문으로 남는다.
     #[serde(default)]
     pub composition: Option<Composition>,
+    /// 동적 프레임(`dynamic_frames`). ID 목록이 아닌 섹션은 `unknown_sections`에 원문으로 남는다.
+    #[serde(default)]
+    pub dynamic_frames: Option<DynamicFrames>,
     /// 해석하지 않은 섹션.
     pub unknown_sections: Vec<RawSection>,
     /// 원문의 최상위 문장 순서(왕복 출력용).

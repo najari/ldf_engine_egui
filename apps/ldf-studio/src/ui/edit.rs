@@ -8,8 +8,9 @@ use crate::ui::bits;
 use crate::ui::icons::{self, Icon};
 use crate::view::SelKey;
 use crate::view::edit::{
-    CompositionUi, EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi, Preview, ScheduleUi,
-    SignalUi, SlotKind, SlotUi, deletion_effects, frame_names, node_names, preview,
+    CompositionUi, DynamicFramesUi, EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi,
+    Preview, ScheduleUi, SignalUi, SlotKind, SlotUi, deletion_effects, frame_names, node_names,
+    preview,
 };
 use egui::{ComboBox, Context, DragValue, TextEdit, Ui};
 use ldf_engine::{EditOp, ModelSnapshot};
@@ -29,6 +30,8 @@ pub enum Dialog {
     Schedule(ScheduleUi),
     /// 노드 구성(composite) 편집.
     Composition(CompositionUi),
+    /// 동적 프레임(dynamic_frames) 편집.
+    DynamicFrames(DynamicFramesUi),
     /// 삭제 확인.
     Delete(DeleteUi),
 }
@@ -239,6 +242,10 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut EditState) -> Outcome 
             ),
             Dialog::Composition(d) => (
                 composition(ctx, model, d, st, &mut outcome),
+                SelKey::Cluster,
+            ),
+            Dialog::DynamicFrames(d) => (
+                dynamic_frames(ctx, model, d, st, &mut outcome),
                 SelKey::Cluster,
             ),
             Dialog::Delete(d) => (delete(ctx, d, &mut outcome), SelKey::Cluster),
@@ -813,6 +820,54 @@ fn composition(
             TextEdit::multiline(&mut d.text)
                 .font(egui::TextStyle::Monospace)
                 .desired_rows(10)
+                .desired_width(f32::INFINITY),
+        );
+        let problems: Vec<String> = op
+            .as_ref()
+            .err()
+            .map(|e| tr(e).into_owned())
+            .into_iter()
+            .collect();
+        footer(
+            ui,
+            "OK",
+            problems.is_empty() && pv.is_some_and(|p| p.error.is_none()),
+            &problems,
+            pv.and_then(|p| p.error.as_deref()),
+            pv.map_or(&[][..], |p| p.new_findings.as_slice()),
+        )
+    });
+    if matches!(done, Done::Ok)
+        && let Ok(op) = op
+    {
+        *out = Outcome::Apply {
+            op: Box::new(op),
+            select: None,
+        };
+    }
+    done
+}
+
+// ---- 동적 프레임 --------------------------------------------------------------------------------
+
+fn dynamic_frames(
+    ctx: &Context,
+    model: &LdfModel,
+    d: &mut DynamicFramesUi,
+    st: &mut EditState,
+    out: &mut Outcome,
+) -> Done {
+    let key = format!("{d:?}");
+    let c = analyze(&mut st.cache, key, model, || d.to_op());
+    let (op, pv) = (c.op.clone(), c.preview.as_ref());
+
+    let done = window(ctx, t("동적 프레임"), |ui| {
+        ui.label(t(
+            "동적 프레임 ID를 쉼표로 구분해 쓴다(10진수 또는 0x 16진수). 이 ID는 다른 프레임과 겹쳐도 된다. 비우면 동적 프레임을 지운다.",
+        ));
+        ui.add(
+            TextEdit::singleline(&mut d.text)
+                .font(egui::TextStyle::Monospace)
                 .desired_width(f32::INFINITY),
         );
         let problems: Vec<String> = op

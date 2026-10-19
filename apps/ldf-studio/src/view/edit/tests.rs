@@ -620,3 +620,50 @@ fn composition_preview_reports_unknown_logical_nodes() {
         pv.new_findings
     );
 }
+
+#[test]
+fn dynamic_frames_dialog_starts_empty_and_creates_the_section() {
+    let m = model();
+    let mut ui = DynamicFramesUi::from_model(&m);
+    assert_eq!(ui.text, "");
+    // 비운 채로 확인하면 아무것도 바뀌지 않는다
+    assert_eq!(apply(&m, &ui.to_op().expect("op")), m);
+    ui.text = "1, 0x2; 3".to_owned();
+    let after = apply(&m, &ui.to_op().expect("op"));
+    let d = after.dynamic_frames.as_ref().expect("dynamic_frames");
+    assert_eq!(
+        (d.keyword.as_str(), d.ids.as_slice()),
+        ("dynamic_frames", &[1, 2, 3][..])
+    );
+    // 다시 열면 같은 글이 나오고, 확인해도 바뀌지 않는다
+    let again = DynamicFramesUi::from_model(&after);
+    assert_eq!(again.text, "0x01, 0x02, 0x03");
+    assert_eq!(apply(&after, &again.to_op().expect("op")), after);
+    // 지우기
+    let cleared = DynamicFramesUi {
+        text: "  ".to_owned(),
+        ..again
+    };
+    assert!(
+        apply(&after, &cleared.to_op().expect("op"))
+            .dynamic_frames
+            .is_none()
+    );
+}
+
+#[test]
+fn dynamic_frames_text_errors_name_the_token_and_the_model_rules_come_from_the_operation() {
+    assert_eq!(parse_dynamic_frames("", "dynamic_frames"), Ok(None));
+    let e = parse_dynamic_frames("1, x2", "dynamic_frames").expect_err("bad token");
+    assert!(e.contains("`x2`"), "{e}");
+    // 범위·중복은 연산이 따진다
+    let m = model();
+    for text in ["0x40", "5, 5"] {
+        let ui = DynamicFramesUi {
+            text: text.to_owned(),
+            ..DynamicFramesUi::from_model(&m)
+        };
+        let pv = preview(&m, &ui.to_op().expect("op"));
+        assert!(pv.error.is_some(), "{text}");
+    }
+}

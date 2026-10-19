@@ -161,6 +161,14 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
             lw.model.composition = Some(c);
             continue;
         }
+        // 동적 프레임도 같다: ID 목록일 때만 모델로 읽는다
+        if matches!(name, "dynamic_frames" | "Dynamic_frames")
+            && lw.model.dynamic_frames.is_none()
+            && let Some(d) = dynamic_frames(src, name, stmt, block)
+        {
+            lw.model.dynamic_frames = Some(d);
+            continue;
+        }
         if !KEPT_RAW.contains(&name) {
             lw.diags.push(Diagnostic::warning(
                 codes::UNKNOWN_SECTION,
@@ -264,6 +272,34 @@ fn composition(src: &str, keyword: &str, stmt: &Stmt, block: &Block) -> Option<C
         keyword: keyword.to_owned(),
         configurations,
         colon_form,
+        span: Some(stmt.span),
+    })
+}
+
+/// 동적 프레임 섹션을 읽는다. 숫자(10진·`0x` 16진)와 `,`·`;`뿐이고 하나 이상이어야 한다. 아니면 `None`.
+///
+/// ```text
+/// dynamic_frames { 1, 2 }
+/// ```
+fn dynamic_frames(src: &str, keyword: &str, stmt: &Stmt, block: &Block) -> Option<DynamicFrames> {
+    let mut ids = Vec::new();
+    for s in &block.stmts {
+        for e in &s.elems {
+            match e {
+                Elem::Token(t) if t.kind == TokenKind::Number => {
+                    ids.push(parse_u64(t.span.text(src)).and_then(|v| u32::try_from(v).ok())?);
+                }
+                Elem::Token(Token {
+                    kind: TokenKind::Punct(',' | ';'),
+                    ..
+                }) => {}
+                _ => return None,
+            }
+        }
+    }
+    (!ids.is_empty()).then(|| DynamicFrames {
+        keyword: keyword.to_owned(),
+        ids,
         span: Some(stmt.span),
     })
 }

@@ -1,8 +1,8 @@
 //! 모델 -> LDF 텍스트. 섹션 하나씩 문자열 블록으로 만든다.
 
 use ldf_model::{
-    Composition, EncodingEntry, EncodingId, FrameId, FrameKind, FrameSignal, InitValue, LdfModel,
-    NodeId, NodeRole, Ref, ScheduleId, SignalId, SignalKind, SlotEntry,
+    Composition, DynamicFrames, EncodingEntry, EncodingId, FrameId, FrameKind, FrameSignal,
+    InitValue, LdfModel, NodeId, NodeRole, Ref, ScheduleId, SignalId, SignalKind, SlotEntry,
 };
 
 fn name_of<'a, T: Copy>(r: &'a Ref<T>, lookup: impl Fn(T) -> Option<&'a str>) -> &'a str {
@@ -395,6 +395,11 @@ pub(crate) fn composition(c: &Composition) -> String {
     }
     s.push_str("}\n");
     s.trim_end().to_owned()
+}
+
+/// 동적 프레임 섹션. 끝에 줄바꿈은 붙이지 않는다.
+pub(crate) fn dynamic_frames(d: &DynamicFrames) -> String {
+    format!("{} {{\n  {}\n}}", d.keyword, join_nums(&d.ids))
 }
 
 pub(crate) fn encodings(m: &LdfModel) -> Option<String> {
