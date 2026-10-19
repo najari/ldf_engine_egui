@@ -40,7 +40,13 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         } else if i == last {
             Column::remainder().at_least(60.0).clip(true)
         } else {
-            Column::initial(80.0).at_least(50.0).clip(true)
+            // 종류 칸은 "Unconditional"이 100~200% 배율에서 줄임표 없이 들어가는 너비로 둔다
+            let width = if table.columns[i] == "Type" {
+                92.0
+            } else {
+                80.0
+            };
+            Column::initial(width).at_least(50.0).clip(true)
         });
     }
 

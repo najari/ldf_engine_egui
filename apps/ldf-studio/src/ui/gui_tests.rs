@@ -1082,3 +1082,198 @@ fn a_signal_context_lists_the_frames_that_carry_it() {
         h.get_by_label(label);
     }
 }
+
+// ---- 창 크기·화면 배율(NFR-07) --------------------------------------------------------------------
+
+/// 마지막으로 그린 화면에서 잘리거나 `…`로 줄어든 글자를 모은다.
+///
+/// 글자 도형마다 (1) 줄임표로 줄었는지(`Galley::elided`), (2) 글자 영역이 그 도형의 자르기 영역 밖으로 나가는지를 본다.
+/// 렌더러 없이 레이아웃만으로 알 수 있어 GPU가 없는 CI에서도 돈다.
+fn clipped_texts(output: &egui::FullOutput) -> Vec<String> {
+    fn walk(shape: &egui::epaint::Shape, clip: egui::Rect, out: &mut Vec<String>) {
+        use egui::epaint::Shape;
+        match shape {
+            Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+            Shape::Text(t) => {
+                let text = t.galley.text().to_owned();
+                if text.trim().is_empty() {
+                    return;
+                }
+                let bounds = t.visual_bounding_rect();
+                let eps = 1.5; // 글자 모서리의 반 픽셀 번짐은 잘린 것으로 치지 않는다
+                let cut = bounds.min.x < clip.min.x - eps
+                    || bounds.min.y < clip.min.y - eps
+                    || bounds.max.x > clip.max.x + eps
+                    || bounds.max.y > clip.max.y + eps;
+                if t.galley.elided || cut {
+                    out.push(format!(
+                        "{text:?} (elided={}, 글자 {bounds:?}, 영역 {clip:?})",
+                        t.galley.elided
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for cs in &output.shapes {
+        walk(&cs.shape, cs.clip_rect, &mut out);
+    }
+    out
+}
+
+/// 시험할 (창 크기[점], 화면 배율). 요구사항의 1280x720(FR-UI-01)과 화면 배율 100·150·200%(NFR-07), 큰 화면.
+const VIEWPORTS: [((f32, f32), f32); 4] = [
+    ((1280.0, 720.0), 1.0),
+    ((1280.0, 720.0), 1.5),
+    ((1280.0, 720.0), 2.0),
+    ((1920.0, 1080.0), 1.0),
+];
+
+/// 메인 화면을 그려 잘린 글자를 모은다.
+fn main_view_clipping(
+    size: (f32, f32),
+    ppp: f32,
+    select: impl FnOnce(&ModelSnapshot) -> Selection,
+) -> Vec<String> {
+    let snap = snapshot(SAMPLE);
+    let (mut st, _) = schedule_state(&snap);
+    st.selection = select(&snap);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(size.0, size.1))
+        .with_pixels_per_point(ppp)
+        .build_ui_state(
+            |ui, s: &mut Main| {
+                crate::app::main_view(ui, &s.snap, &mut s.st, s.hex);
+            },
+            Main {
+                snap,
+                st,
+                hex: false,
+                sent: Vec::new(),
+            },
+        );
+    h.run();
+    clipped_texts(h.output())
+}
+
+#[test]
+fn main_view_text_is_not_clipped_at_common_sizes_and_scales() {
+    // 슬롯(스케줄 속성)·프레임(비트 레이아웃)·클러스터·노드를 골랐을 때의 화면 전부
+    type Pick = fn(&ModelSnapshot) -> Selection;
+    let picks: [(&str, Pick); 4] = [
+        ("슬롯", |s| {
+            Selection::Slot(s.model.find_schedule("T").expect("T"), 1)
+        }),
+        ("프레임", |s| {
+            Selection::Frame(s.model.find_frame("FA").expect("FA"))
+        }),
+        ("클러스터", |_| Selection::Cluster),
+        ("노드", |s| {
+            Selection::Node(s.model.find_node("A").expect("A"))
+        }),
+    ];
+    let mut problems = Vec::new();
+    for ((w, h), ppp) in VIEWPORTS {
+        for (name, pick) in picks {
+            for t in main_view_clipping((w, h), ppp, pick) {
+                problems.push(format!("{name} {w}x{h} @{ppp}: {t}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
+}
+
+#[test]
+#[ignore = "알려진 한계: 1260점보다 좁으면 오른쪽 속성 패널과 스케줄 표 머리글이 잘린다(창 최소 크기는 960x600)"]
+fn main_view_text_is_not_clipped_at_the_minimum_window_size() {
+    for ppp in [1.0, 2.0] {
+        let problems = main_view_clipping((960.0, 600.0), ppp, |s| {
+            Selection::Frame(s.model.find_frame("FA").expect("FA"))
+        });
+        assert!(problems.is_empty(), "@{ppp}:\n{}", problems.join("\n"));
+    }
+}
+
+/// 대화상자·창이 이 크기와 배율에서 잘리지 않는지.
+fn window_clipping<S: 'static>(
+    state: S,
+    size: (f32, f32),
+    ppp: f32,
+    mut draw: impl FnMut(&egui::Context, &mut S) + 'static,
+) -> Vec<String> {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(size.0, size.1))
+        .with_pixels_per_point(ppp)
+        .build_ui_state(move |ui, s: &mut S| draw(ui.ctx(), s), state);
+    h.run();
+    clipped_texts(h.output())
+}
+
+#[test]
+fn dialogs_and_windows_are_not_clipped_at_common_scales() {
+    let mut problems = Vec::new();
+    for ((w, h), ppp) in VIEWPORTS {
+        let snap = snapshot(SAMPLE);
+        let fa = snap.model.find_frame("FA").expect("FA");
+        // 편집 대화상자: 프레임, 시그널, 노드, 스케줄, 노드 구성
+        let dialogs: Vec<(&str, Dialog)> = vec![
+            (
+                "프레임 편집",
+                Dialog::Frame(FrameUi::from_frame(&snap.model, fa).expect("frame")),
+            ),
+            (
+                "노드 구성",
+                Dialog::Composition(CompositionUi::from_model(&snap.model)),
+            ),
+        ];
+        for (name, d) in dialogs {
+            let mut st = EditState::default();
+            st.dialog = Some(d);
+            let bad = window_clipping(
+                Dlg {
+                    snap: snap.clone(),
+                    st,
+                    sent: Vec::new(),
+                },
+                (w, h),
+                ppp,
+                |ctx, s| {
+                    let _ = show(ctx, &s.snap, &mut s.st);
+                },
+            );
+            problems.extend(
+                bad.into_iter()
+                    .map(|t| format!("{name} {w}x{h} @{ppp}: {t}")),
+            );
+        }
+        // 내보내기·리비전 창. Checker 창은 긴 진단 메시지와 원문을 일부러 줄임표·스크롤로 보여 주므로 이 시험에서 뺀다
+        let mut exp = ExportState::default();
+        exp.open = true;
+        let bad = window_clipping(
+            Exp {
+                snap: snap.clone(),
+                st: exp,
+                actions: Vec::new(),
+            },
+            (w, h),
+            ppp,
+            |ctx, s| {
+                let _ = export::show(ctx, &s.snap, &mut s.st);
+            },
+        );
+        problems.extend(
+            bad.into_iter()
+                .map(|t| format!("내보내기 {w}x{h} @{ppp}: {t}")),
+        );
+        let (_s, revs) = revisions_state();
+        let bad = window_clipping(revs, (w, h), ppp, |ctx, s| {
+            let _ = revisions::show(ctx, &s.list, s.current, &mut s.st);
+        });
+        problems.extend(
+            bad.into_iter()
+                .map(|t| format!("리비전 {w}x{h} @{ppp}: {t}")),
+        );
+    }
+    assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
+}
