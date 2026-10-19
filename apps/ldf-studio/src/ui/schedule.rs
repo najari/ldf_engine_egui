@@ -60,10 +60,11 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
         .resizable(true)
         .sense(Sense::click_and_drag())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::initial(200.0).at_least(120.0).clip(true))
-        .column(Column::initial(90.0).at_least(60.0).clip(true))
-        .column(Column::initial(80.0).at_least(60.0))
-        .column(Column::initial(150.0).at_least(100.0))
+        // 이름 칸만 고정 폭이고, 나머지는 머리글·내용에 맞춰 가장 좁게 잡는다(좁은 창에서도 머리글이 줄지 않게)
+        .column(Column::initial(150.0).at_least(100.0).clip(true))
+        .column(Column::auto().at_least(60.0).clip(true))
+        .column(Column::auto().at_least(60.0))
+        .column(Column::auto().at_least(100.0))
         .column(Column::remainder().at_least(130.0))
         .header(22.0, |mut h| {
             for t in [
@@ -74,7 +75,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
                 "Min. Frame Time [ms]",
             ] {
                 h.col(|ui| {
-                    ui.add(egui::Label::new(egui::RichText::new(t).strong()).truncate());
+                    ui.strong(t);
                 });
             }
         })

@@ -36,7 +36,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
     let last = table.columns.len() - 1;
     for i in 0..table.columns.len() {
         builder = builder.column(if i == 0 {
-            Column::initial(160.0).at_least(80.0).clip(true)
+            Column::initial(116.0).at_least(80.0).clip(true)
         } else if i == last {
             Column::remainder().at_least(60.0).clip(true)
         } else {

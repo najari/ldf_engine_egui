@@ -939,7 +939,7 @@ fn a_slot_delay_is_edited_in_the_slot_properties() {
     // 속성 창(오른쪽)의 delay 값: 표에도 같은 글자가 있어 위치로 가린다
     let value = h
         .get_all_by_label("10.00")
-        .find(|n| n.rect().min.x > 1100.0 && n.rect().min.y < 100.0)
+        .find(|n| n.rect().min.x > 940.0 && n.rect().min.y < 100.0)
         .expect("속성 창의 delay")
         .rect()
         .center();
@@ -1184,17 +1184,78 @@ fn main_view_text_is_not_clipped_at_common_sizes_and_scales() {
     assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
 }
 
-#[test]
-#[ignore = "알려진 한계: 1260점보다 좁으면 오른쪽 속성 패널과 스케줄 표 머리글이 잘린다(창 최소 크기는 960x600)"]
-fn main_view_text_is_not_clipped_at_the_minimum_window_size() {
-    for ppp in [1.0, 2.0] {
-        let problems = main_view_clipping((960.0, 600.0), ppp, |s| {
-            Selection::Frame(s.model.find_frame("FA").expect("FA"))
-        });
-        assert!(problems.is_empty(), "@{ppp}:\n{}", problems.join("\n"));
+/// 마지막으로 그린 글자 중 줄임표(`…`)로 줄어든 것.
+fn elided_texts(output: &egui::FullOutput) -> Vec<String> {
+    fn walk(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+        use egui::epaint::Shape;
+        match shape {
+            Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            Shape::Text(t) if t.galley.elided => out.push(t.galley.text().to_owned()),
+            _ => {}
+        }
     }
+    let mut out = Vec::new();
+    for cs in &output.shapes {
+        walk(&cs.shape, &mut out);
+    }
+    out
 }
 
+/// 창이 최소 크기(960x600)까지 좁아져도 줄이거나 자르지 않고 가로 스크롤로 보여 준다.
+#[test]
+fn narrow_windows_scroll_instead_of_clipping() {
+    for ppp in [1.0, 2.0] {
+        let snap = snapshot(SAMPLE);
+        let (mut st, _) = schedule_state(&snap);
+        st.selection = Selection::Frame(snap.model.find_frame("FA").expect("FA"));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(960.0, 600.0))
+            .with_pixels_per_point(ppp)
+            .build_ui_state(
+                |ui, s: &mut Main| {
+                    crate::app::main_view(ui, &s.snap, &mut s.st, s.hex);
+                },
+                Main {
+                    snap,
+                    st,
+                    hex: false,
+                    sent: Vec::new(),
+                },
+            );
+        h.run();
+        // 표 머리글·종류 칸의 글자가 줄임표로 줄지 않는다
+        let elided = elided_texts(h.output());
+        assert!(elided.is_empty(), "@{ppp} 줄임표로 줄어든 글자: {elided:?}");
+        // 오른쪽 속성 패널은 늘 창 안에 있다
+        let panel = h.get_by_label("Frame Properties").rect();
+        assert!(
+            panel.min.x >= 0.0 && panel.max.x <= 960.0,
+            "@{ppp}: 속성 패널 {panel:?}"
+        );
+        // 왼쪽 표는 잘리는 대신 가로로 스크롤된다: 머리글은 처음에 창 밖(칸 밖)에 있고 휠로 들어온다
+        let header = h.get_by_label("Min. Frame Time [ms]").rect();
+        assert!(
+            header.max.x > panel.min.x,
+            "@{ppp}: 표 머리글이 속성 패널과 겹치거나 그 뒤에 있어야 한다 {header:?}"
+        );
+        h.event(egui::Event::PointerMoved(egui::pos2(450.0, 120.0)));
+        h.step();
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-400.0, 0.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run();
+        let moved = h.get_by_label("Min. Frame Time [ms]").rect();
+        assert!(
+            moved.min.x < header.min.x,
+            "@{ppp}: 휠로 표가 스크롤되어야 한다 {header:?} -> {moved:?}"
+        );
+        let elided = elided_texts(h.output());
+        assert!(elided.is_empty(), "@{ppp} 스크롤 뒤 줄임표: {elided:?}");
+    }
+}
 /// 대화상자·창이 이 크기와 배율에서 잘리지 않는지.
 fn window_clipping<S: 'static>(
     state: S,

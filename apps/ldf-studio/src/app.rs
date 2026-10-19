@@ -1161,6 +1161,9 @@ impl StudioApp {
     }
 }
 
+/// 왼쪽 표(스케줄·컨텍스트)가 머리글("Max. Frame Time [ms]" 등)과 "종류" 칸을 줄임표 없이 보여 주는 최소 너비(점).
+const LEFT_MIN_WIDTH: f32 = 540.0;
+
 /// 메인 화면(내비게이션, 스케줄 뷰, 컨텍스트 뷰, 속성 창 2개)을 그린다. 속성 창에서 값을 고쳤으면 보낼 연산과 편집 뒤 선택할 객체를 돌려준다.
 /// 앱 본체와 떨어진 함수라서 화면 시험이 상태(`UiState`)만 들고 그릴 수 있다.
 pub(crate) fn main_view(
@@ -1169,8 +1172,10 @@ pub(crate) fn main_view(
     st: &mut UiState,
     hex: bool,
 ) -> Option<(EditOp, Option<SelKey>)> {
+    // 좁은 창에서는 내비게이션을 처음부터 좁게 연다(창 너비의 23%, 200~290점)
+    let nav_width = (ui.available_width() * 0.23).clamp(200.0, 290.0);
     egui::Panel::left("nav")
-        .default_size(290.0)
+        .default_size(nav_width)
         .size_range(200.0..=560.0)
         .show(ui, |ui| {
             nav::show(ui, snap, st, hex);
@@ -1295,18 +1300,31 @@ fn renamed_selection(m: &ldf_model::LdfModel, sel: &Selection, op: &EditOp) -> O
 }
 
 /// 왼쪽에 본 뷰, 오른쪽에 속성 창을 두는 가로 분할.
+///
+/// 왼쪽 표가 [`LEFT_MIN_WIDTH`]보다 좁아지면 머리글을 줄임표로 줄이지 않고 왼쪽 칸 안에서 가로로 스크롤한다.
+/// 속성 패널(오른쪽)은 늘 310점으로 창 안에 남는다. 스크롤 영역을 가운데 영역 전체에 두면 패널이 자기 영역을 직접 자르기 때문에
+/// 내비게이션 위로 번지므로, 스크롤은 칸 안에 가둔다.
 fn split(ui: &mut Ui, left: impl FnOnce(&mut Ui), right: impl FnOnce(&mut Ui)) {
     StripBuilder::new(ui)
         .size(Size::remainder().at_least(220.0))
         .size(Size::exact(310.0))
         .horizontal(|mut strip| {
-            strip.cell(left);
+            strip.cell(|ui| {
+                // 가로 막대만 떠 있지 않고 늘 보이게 해 표가 잘려 있다는 것을 알린다(안쪽 영역의 막대는 그대로)
+                ui.spacing_mut().scroll.floating = false;
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().scroll.floating = true;
+                        ui.set_min_width(LEFT_MIN_WIDTH);
+                        left(ui);
+                    });
+            });
             strip.cell(|ui| {
                 ScrollArea::vertical().auto_shrink(false).show(ui, right);
             });
         });
 }
-
 impl eframe::App for StudioApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let started = std::time::Instant::now();
