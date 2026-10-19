@@ -2,6 +2,7 @@
 
 use crate::args::Args;
 use ldf_engine::{analyze, diff_report};
+use ldf_i18n::{tf, twriteln};
 use std::io::Write;
 
 /// 종료 코드: 0 = 차이 없음, 1 = 차이 있음, 3 = 실행 실패.
@@ -14,19 +15,19 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
     };
     let [before, after] = parsed.positional.as_slice() else {
-        let _ = writeln!(err, "diff는 파일 두 개(이전, 이후)가 필요하다");
+        let _ = twriteln!(err, "diff는 파일 두 개(이전, 이후)가 필요하다");
         return 3;
     };
     let format = parsed.value("--format").unwrap_or("text");
     if !matches!(format, "text" | "json" | "csv" | "html") {
-        let _ = writeln!(
+        let _ = twriteln!(
             err,
             "--format 값은 text, json, csv, html 중 하나여야 한다: {format}"
         );
         return 3;
     }
     let model = |path: &str| -> Result<_, String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: 파일을 읽을 수 없다: {e}"))?;
+        let bytes = std::fs::read(path).map_err(|e| tf!("{path}: 파일을 읽을 수 없다: {e}"))?;
         Ok(analyze(&bytes).model)
     };
     let (a, b) = match (model(before), model(after)) {
@@ -48,7 +49,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         None => out.write_all(&bytes),
     };
     if let Err(e) = written {
-        let _ = writeln!(err, "출력을 쓸 수 없다: {e}");
+        let _ = twriteln!(err, "출력을 쓸 수 없다: {e}");
         return 3;
     }
     u8::from(!d.is_empty())

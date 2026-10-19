@@ -2,6 +2,7 @@
 
 use crate::args::Args;
 use ldf_engine::{Eol, ExportFormat, ExportOptions, Session, Target, decode};
+use ldf_i18n::twriteln;
 use std::io::Write;
 use std::path::Path;
 
@@ -38,11 +39,11 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
     };
     let [input] = parsed.positional.as_slice() else {
-        let _ = writeln!(err, "convert는 입력 파일 하나가 필요하다");
+        let _ = twriteln!(err, "convert는 입력 파일 하나가 필요하다");
         return 3;
     };
     let Some(output) = parsed.value("-o") else {
-        let _ = writeln!(err, "-o <출력 파일>이 필요하다");
+        let _ = twriteln!(err, "-o <출력 파일>이 필요하다");
         return 3;
     };
     let mut opts = ExportOptions {
@@ -51,7 +52,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     };
     if let Some(t) = parsed.value("--to") {
         let Some(t) = target(t) else {
-            let _ = writeln!(err, "--to 값은 keep, 2.0, 2.1, 2.2 중 하나여야 한다: {t}");
+            let _ = twriteln!(err, "--to 값은 keep, 2.0, 2.1, 2.2 중 하나여야 한다: {t}");
             return 3;
         };
         opts.target = t;
@@ -61,13 +62,13 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         Some("lf") => opts.eol = Some(Eol::Lf),
         Some("crlf") => opts.eol = Some(Eol::CrLf),
         Some(other) => {
-            let _ = writeln!(err, "--eol 값은 lf 또는 crlf여야 한다: {other}");
+            let _ = twriteln!(err, "--eol 값은 lf 또는 crlf여야 한다: {other}");
             return 3;
         }
     }
     if let Some(e) = parsed.value("--encoding") {
         let Some(e) = encoding(e) else {
-            let _ = writeln!(
+            let _ = twriteln!(
                 err,
                 "--encoding 값은 utf-8, utf-8-bom, windows-1252 중 하나여야 한다: {e}"
             );
@@ -79,7 +80,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         None | Some("ldf") => {}
         Some("json") => opts.format = ExportFormat::Json,
         Some(other) => {
-            let _ = writeln!(err, "--format 값은 ldf 또는 json이어야 한다: {other}");
+            let _ = twriteln!(err, "--format 값은 ldf 또는 json이어야 한다: {other}");
             return 3;
         }
     }
@@ -87,7 +88,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let bytes = match std::fs::read(input) {
         Ok(b) => b,
         Err(e) => {
-            let _ = writeln!(err, "{input}: 파일을 읽을 수 없다: {e}");
+            let _ = twriteln!(err, "{input}: 파일을 읽을 수 없다: {e}");
             return 3;
         }
     };
@@ -101,17 +102,18 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     match result {
         Ok(report) => {
             for w in &report.warnings {
-                let _ = writeln!(err, "경고: {w}");
+                let _ = twriteln!(err, "경고: {w}");
             }
-            let _ = writeln!(
+            let _ = twriteln!(
                 out,
                 "{output}: {} 바이트, {}",
-                report.bytes, report.encoding
+                report.bytes,
+                report.encoding
             );
             0
         }
         Err(ldf_engine::EngineError::ExportBlocked { errors }) => {
-            let _ = writeln!(
+            let _ = twriteln!(
                 err,
                 "오류 진단이 {errors}개 남아 있어 쓰지 않았다(그래도 쓰려면 --allow-errors). 자세한 내용은 `ldf-cli check {input}`"
             );

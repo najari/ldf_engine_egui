@@ -319,6 +319,17 @@ fn every_studio_phrase_is_translated() {
 }
 
 #[test]
+fn every_cli_message_is_translated() {
+    let files = collect(&["apps/ldf-cli/src"], &[], &["tests.rs"]);
+    let missing = missing_in(&files);
+    assert!(
+        missing.is_empty(),
+        "번역 표에 없는 CLI 메시지:\n{}",
+        missing.join("\n")
+    );
+}
+
+#[test]
 fn every_library_message_is_translated() {
     let files = collect(
         &["crates/ldf-check/src/rules"],
@@ -336,6 +347,7 @@ fn every_library_message_is_translated() {
             "crates/ldf-engine/src/export.rs",
             "crates/ldf-engine/src/worker.rs",
             "crates/ldf-engine/src/session.rs",
+            "crates/ldf-engine/src/diff_report.rs",
         ],
         &["tests.rs"],
     );

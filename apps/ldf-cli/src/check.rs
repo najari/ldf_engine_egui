@@ -1,6 +1,7 @@
 //! `ldf-cli check`: 파일을 검사해 진단을 출력하고 종료 코드를 정한다.
 
 use ldf_engine::analyze;
+use ldf_i18n::{t, tf, tr, twriteln};
 use ldf_model::{Diagnostic, LineIndex, Severity};
 use serde_json::json;
 use std::io::Write;
@@ -52,18 +53,16 @@ fn parse_args(args: &[String]) -> Result<(Vec<String>, Format), String> {
                     Some("text") => Format::Text,
                     Some("json") => Format::Json,
                     other => {
-                        return Err(format!(
-                            "--format 값은 text 또는 json이어야 한다: {other:?}"
-                        ));
+                        return Err(tf!("--format 값은 text 또는 json이어야 한다: {other:?}"));
                     }
                 }
             }
-            flag if flag.starts_with("--") => return Err(format!("알 수 없는 옵션 `{flag}`")),
+            flag if flag.starts_with("--") => return Err(tf!("알 수 없는 옵션 `{flag}`")),
             file => files.push(file.to_owned()),
         }
     }
     if files.is_empty() {
-        return Err("검사할 파일을 하나 이상 지정해야 한다".to_owned());
+        return Err(t("검사할 파일을 하나 이상 지정해야 한다").to_owned());
     }
     Ok((files, format))
 }
@@ -79,12 +78,12 @@ fn write_text(out: &mut dyn Write, reports: &[FileReport]) -> std::io::Result<()
                 r.path,
                 severity_name(d.severity),
                 d.code,
-                d.message
+                tr(&d.message)
             )?;
         }
     }
     let total: usize = reports.iter().map(|r| r.diagnostics.len()).sum();
-    writeln!(out, "파일 {}개, 진단 {total}건", reports.len())
+    twriteln!(out, "파일 {}개, 진단 {total}건", reports.len())
 }
 
 fn write_json(out: &mut dyn Write, reports: &[FileReport]) -> std::io::Result<()> {
@@ -102,7 +101,7 @@ fn write_json(out: &mut dyn Write, reports: &[FileReport]) -> std::io::Result<()
                         "severity": severity_name(d.severity),
                         "line": line,
                         "col": col,
-                        "message": d.message,
+                        "message": tr(&d.message),
                     })
                 })
                 .collect();
@@ -136,7 +135,7 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
                 });
             }
             Err(e) => {
-                let _ = writeln!(err, "{f}: 파일을 읽을 수 없다: {e}");
+                let _ = twriteln!(err, "{f}: 파일을 읽을 수 없다: {e}");
                 failed = true;
             }
         }

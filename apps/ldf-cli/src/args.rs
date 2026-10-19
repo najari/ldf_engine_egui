@@ -1,5 +1,6 @@
 //! 하위 명령이 함께 쓰는 아주 작은 인자 해석기: 위치 인자, `--옵션 값`, `-o 값`, `--플래그`.
 
+use ldf_i18n::tf;
 use std::collections::{HashMap, HashSet};
 
 /// 해석된 인자.
@@ -19,14 +20,12 @@ impl Args {
         let mut it = args.iter();
         while let Some(a) = it.next() {
             if valued.contains(&a.as_str()) {
-                let v = it
-                    .next()
-                    .ok_or_else(|| format!("{a} 옵션에 값이 필요하다"))?;
+                let v = it.next().ok_or_else(|| tf!("{a} 옵션에 값이 필요하다"))?;
                 parsed.values.insert(a.clone(), v.clone());
             } else if flags.contains(&a.as_str()) {
                 parsed.flags.insert(a.clone());
             } else if a.starts_with('-') && a.len() > 1 {
-                return Err(format!("알 수 없는 옵션 `{a}`"));
+                return Err(tf!("알 수 없는 옵션 `{a}`"));
             } else {
                 parsed.positional.push(a.clone());
             }

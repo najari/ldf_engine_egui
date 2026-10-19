@@ -54,6 +54,7 @@ ldf-cli convert 입력.ldf -o 모델.json --format json                  # 모�
 ldf-cli import  프로젝트.ldfdb a.ldf b.ldf                           # 파일마다 리비전을 만든다
 ldf-cli list    프로젝트.ldfdb
 ldf-cli export  프로젝트.ldfdb [--revision N] -o 출력.ldf
+ldf-cli check   a.ldf --lang en                                    # 어느 명령이든 --lang ko|en (환경 변수 LDF_LANG도 같다): 출력·보고서 언어
 ```
 
 ### 편집과 리비전

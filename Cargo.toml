@@ -17,6 +17,7 @@ ldf-check = { path = "crates/ldf-check" }
 ldf-writer = { path = "crates/ldf-writer" }
 ldf-store = { path = "crates/ldf-store" }
 ldf-engine = { path = "crates/ldf-engine" }
+ldf-i18n = { path = "crates/ldf-i18n" }
 
 # 파서·공통
 winnow = "1.0"

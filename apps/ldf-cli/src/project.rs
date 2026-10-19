@@ -2,6 +2,7 @@
 
 use crate::args::Args;
 use ldf_engine::{ExportFormat, ExportOptions, Session};
+use ldf_i18n::{t, twriteln};
 use std::io::Write;
 use std::path::Path;
 
@@ -9,7 +10,7 @@ fn open(path: &str, err: &mut dyn Write) -> Option<Session> {
     match Session::open(Path::new(path)) {
         Ok(s) => Some(s),
         Err(e) => {
-            let _ = writeln!(err, "{path}: 프로젝트를 열 수 없다: {e}");
+            let _ = twriteln!(err, "{path}: 프로젝트를 열 수 없다: {e}");
             None
         }
     }
@@ -18,7 +19,7 @@ fn open(path: &str, err: &mut dyn Write) -> Option<Session> {
 /// `list <프로젝트>`: 리비전 목록(ID, 부모, 시각, 이름).
 pub fn list(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [project] = args else {
-        let _ = writeln!(err, "list는 프로젝트 파일 하나가 필요하다");
+        let _ = twriteln!(err, "list는 프로젝트 파일 하나가 필요하다");
         return 3;
     };
     let Some(s) = open(project, err) else {
@@ -52,11 +53,11 @@ pub fn list(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
 /// `import <프로젝트> <파일...>`: 파일마다 리비전을 만든다(같은 내용이면 기존 리비전을 쓴다). 줄마다 `ID<TAB>파일`.
 pub fn import(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [project, files @ ..] = args else {
-        let _ = writeln!(err, "import는 프로젝트 파일과 LDF 파일이 필요하다");
+        let _ = twriteln!(err, "import는 프로젝트 파일과 LDF 파일이 필요하다");
         return 3;
     };
     if files.is_empty() {
-        let _ = writeln!(err, "가져올 LDF 파일을 하나 이상 지정해야 한다");
+        let _ = twriteln!(err, "가져올 LDF 파일을 하나 이상 지정해야 한다");
         return 3;
     }
     let Some(mut s) = open(project, err) else {
@@ -67,7 +68,7 @@ pub fn import(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         match s.import_file(Path::new(f)) {
             Ok(o) => {
                 let note = if o.reused {
-                    "\t(같은 내용이 이미 있어 기존 리비전)"
+                    t("\t(같은 내용이 이미 있어 기존 리비전)")
                 } else {
                     ""
                 };
@@ -92,11 +93,11 @@ pub fn export(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         }
     };
     let [project] = parsed.positional.as_slice() else {
-        let _ = writeln!(err, "export는 프로젝트 파일 하나가 필요하다");
+        let _ = twriteln!(err, "export는 프로젝트 파일 하나가 필요하다");
         return 3;
     };
     let Some(output) = parsed.value("-o") else {
-        let _ = writeln!(err, "-o <출력 파일>이 필요하다");
+        let _ = twriteln!(err, "-o <출력 파일>이 필요하다");
         return 3;
     };
     let Some(mut s) = open(project, err) else {
@@ -106,14 +107,14 @@ pub fn export(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         Some(v) => match v.parse::<i64>() {
             Ok(n) => n,
             Err(_) => {
-                let _ = writeln!(err, "--revision 값은 정수여야 한다: {v}");
+                let _ = twriteln!(err, "--revision 값은 정수여야 한다: {v}");
                 return 3;
             }
         },
         None => match s.revisions().map(|r| r.last().map(|x| x.id)) {
             Ok(Some(id)) => id,
             Ok(None) => {
-                let _ = writeln!(err, "프로젝트에 리비전이 없다");
+                let _ = twriteln!(err, "프로젝트에 리비전이 없다");
                 return 3;
             }
             Err(e) => {
@@ -130,17 +131,17 @@ pub fn export(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         None | Some("ldf") => {}
         Some("json") => opts.format = ExportFormat::Json,
         Some(other) => {
-            let _ = writeln!(err, "--format 값은 ldf 또는 json이어야 한다: {other}");
+            let _ = twriteln!(err, "--format 값은 ldf 또는 json이어야 한다: {other}");
             return 3;
         }
     }
     match s.export(revision, Path::new(output), &opts) {
         Ok(r) => {
-            let _ = writeln!(out, "리비전 {revision} -> {output} ({} 바이트)", r.bytes);
+            let _ = twriteln!(out, "리비전 {revision} -> {output} ({} 바이트)", r.bytes);
             0
         }
         Err(ldf_engine::EngineError::ExportBlocked { errors }) => {
-            let _ = writeln!(
+            let _ = twriteln!(
                 err,
                 "오류 진단이 {errors}개 남아 있어 쓰지 않았다(--allow-errors)"
             );

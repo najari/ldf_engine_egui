@@ -1,13 +1,17 @@
 //! 리비전 비교 결과를 사람이 읽는 형식(텍스트·CSV·HTML)과 JSON으로 만든다(FR-REV-04, FR-CLI-03).
 
+//!
+//! 문구는 화면 언어(`ldf_i18n`)를 따른다. 파일에 쓰는 보고서도 지금 고른 언어로 만들어진다.
+
+use ldf_i18n::{Lang, change_label, lang, t, tf};
 use ldf_model::{Change, Diff, DiffEntry};
 
 fn shown(v: &str) -> &str {
-    if v.is_empty() { "(없음)" } else { v }
+    if v.is_empty() { t("(없음)") } else { v }
 }
 
 /// 이름 변경이면 `옛 이름 → 새 이름`, 아니면 이름.
-fn title(e: &DiffEntry) -> String {
+fn title_of(e: &DiffEntry) -> String {
     match &e.change {
         Change::Renamed { from } => format!("{from} → {}", e.name),
         _ => e.name.clone(),
@@ -19,10 +23,10 @@ pub fn to_text(d: &Diff, before: &str, after: &str) -> String {
     let (added, removed, changed, renamed) = d.counts();
     let mut out = format!("--- {before}\n+++ {after}\n");
     if d.is_empty() {
-        out.push_str("차이 없음\n");
+        out.push_str(&format!("{}\n", t("차이 없음")));
         return out;
     }
-    out.push_str(&format!(
+    out.push_str(&tf!(
         "추가 {added}, 삭제 {removed}, 변경 {changed}, 이름 변경 {renamed}\n"
     ));
     for e in &d.entries {
@@ -32,7 +36,7 @@ pub fn to_text(d: &Diff, before: &str, after: &str) -> String {
             Change::Changed => '~',
             Change::Renamed { .. } => '>',
         };
-        out.push_str(&format!("\n{mark} {} {}\n", e.kind.label(), title(e)));
+        out.push_str(&format!("\n{mark} {} {}\n", e.kind.label(), title_of(e)));
         for f in &e.fields {
             match e.change {
                 Change::Added => out.push_str(&format!("    {}: {}\n", f.field, shown(&f.after))),
@@ -75,8 +79,8 @@ pub fn to_csv(d: &Diff) -> Vec<u8> {
             out.push_str(&format!(
                 "{},{},{},{},{},{}\r\n",
                 csv_cell(e.kind.label()),
-                csv_cell(&title(e)),
-                csv_cell(e.change.label()),
+                csv_cell(&title_of(e)),
+                csv_cell(change_label(e.change.label())),
                 csv_cell(&field),
                 csv_cell(&before),
                 csv_cell(&after),
@@ -93,26 +97,41 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// 공급사에 그대로 보낼 수 있는 단독 HTML 문서.
-pub fn to_html(d: &Diff, before: &str, after: &str) -> String {
-    let (added, removed, changed, renamed) = d.counts();
-    let mut out = String::from(
-        "<!doctype html>\n<html lang=\"ko\"><head><meta charset=\"utf-8\">\n<title>LDF 비교</title>\n<style>\n\
+const HTML_STYLE: &str = "<style>\n\
 body{font-family:Segoe UI,Malgun Gothic,sans-serif;margin:24px;color:#222}\n\
 table{border-collapse:collapse;width:100%}\nth,td{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}\n\
 th{background:#f0f0f0}\ntr.added td:first-child{background:#e6ffed}\ntr.removed td:first-child{background:#ffeef0}\n\
-tr.changed td:first-child,tr.renamed td:first-child{background:#fff8c5}\n.before{color:#a40000}.after{color:#006400}\n</style></head><body>\n",
+tr.changed td:first-child,tr.renamed td:first-child{background:#fff8c5}\n.before{color:#a40000}.after{color:#006400}\n</style>";
+
+/// 공급사에 그대로 보낼 수 있는 단독 HTML 문서.
+pub fn to_html(d: &Diff, before: &str, after: &str) -> String {
+    let (added, removed, changed, renamed) = d.counts();
+    let title = t("LDF 비교");
+    let html_lang = if lang() == Lang::En { "en" } else { "ko" };
+    let mut out = format!(
+        "<!doctype html>\n<html lang=\"{html_lang}\"><head><meta charset=\"utf-8\">\n<title>{title}</title>\n{HTML_STYLE}</head><body>\n"
     );
     out.push_str(&format!(
-        "<h1>LDF 비교</h1>\n<p>이전: <b>{}</b><br>이후: <b>{}</b></p>\n<p>추가 {added}, 삭제 {removed}, 변경 {changed}, 이름 변경 {renamed}</p>\n",
+        "<h1>{title}</h1>\n<p>{}: <b>{}</b><br>{}: <b>{}</b></p>\n<p>{}</p>\n",
+        t("이전"),
         esc(before),
-        esc(after)
+        t("이후"),
+        esc(after),
+        tf!("추가 {added}, 삭제 {removed}, 변경 {changed}, 이름 변경 {renamed}")
     ));
     if d.is_empty() {
-        out.push_str("<p>차이 없음</p>\n</body></html>\n");
+        out.push_str(&format!("<p>{}</p>\n</body></html>\n", t("차이 없음")));
         return out;
     }
-    out.push_str("<table>\n<tr><th>종류</th><th>이름</th><th>변경</th><th>필드</th><th>이전</th><th>이후</th></tr>\n");
+    out.push_str(&format!(
+        "<table>\n<tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr>\n",
+        t("종류"),
+        t("이름"),
+        t("변경"),
+        t("필드"),
+        t("이전"),
+        t("이후")
+    ));
     for e in &d.entries {
         let class = match e.change {
             Change::Added => "added",
@@ -127,8 +146,8 @@ tr.changed td:first-child,tr.renamed td:first-child{background:#fff8c5}\n.before
                 out.push_str(&format!(
                     "<td rowspan=\"{rows}\">{}</td><td rowspan=\"{rows}\">{}</td><td rowspan=\"{rows}\">{}</td>",
                     esc(e.kind.label()),
-                    esc(&title(e)),
-                    esc(e.change.label())
+                    esc(&title_of(e)),
+                    esc(change_label(e.change.label()))
                 ));
             }
             match e.fields.get(i) {
@@ -146,7 +165,6 @@ tr.changed td:first-child,tr.renamed td:first-child{background:#fff8c5}\n.before
     out.push_str("</table>\n</body></html>\n");
     out
 }
-
 /// JSON(들여 쓴 문자열).
 pub fn to_json(d: &Diff) -> String {
     serde_json::to_string_pretty(d).unwrap_or_else(|_| "{}".to_owned())

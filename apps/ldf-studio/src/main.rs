@@ -4,9 +4,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[macro_use]
-mod i18n;
+extern crate ldf_i18n;
+
 mod app;
 mod fonts;
+mod i18n;
 mod logging;
 mod ui;
 mod view;

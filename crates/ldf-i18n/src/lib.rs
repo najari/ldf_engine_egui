@@ -1,4 +1,4 @@
-//! 화면 언어(한국어/영어).
+//! 화면·메시지 언어(한국어/영어). Studio·`ldf-cli`·엔진의 보고서가 함께 쓴다.
 //!
 //! 코드의 문구는 한국어로 적혀 있고, 영어 화면은 **표시하는 자리에서** 번역한다:
 //! - [`t`]: 정해진 문구(`&'static str`)를 번역한다. 영어가 아니면 그대로 돌려주므로 비용이 거의 없다.
@@ -9,10 +9,19 @@
 
 mod table;
 
+/// `writeln!`과 같지만 쓰는 문장을 화면 언어로 번역한다(CLI 출력용).
+#[macro_export]
+macro_rules! twriteln {
+    ($dst:expr, $($arg:tt)*) => {
+        ::std::writeln!($dst, "{}", $crate::tf!($($arg)*))
+    };
+}
+
 /// `format!`과 같지만 결과 문장을 화면 언어로 번역한다(`String`).
+#[macro_export]
 macro_rules! tf {
     ($($arg:tt)*) => {
-        $crate::i18n::tr(&format!($($arg)*)).into_owned()
+        $crate::tr(&format!($($arg)*)).into_owned()
     };
 }
 
@@ -46,6 +55,11 @@ impl Lang {
 /// 화면 언어를 바꾼다.
 pub fn set_lang(lang: Lang) {
     ENGLISH.store(lang == Lang::En, Ordering::Relaxed);
+}
+
+/// 지금 화면 언어.
+pub fn lang() -> Lang {
+    if is_english() { Lang::En } else { Lang::Ko }
 }
 
 fn is_english() -> bool {

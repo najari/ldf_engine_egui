@@ -1856,6 +1856,7 @@ name = "ldf-cli"
 version = "0.1.0"
 dependencies = [
  "ldf-engine",
+ "ldf-i18n",
  "ldf-model",
  "serde_json",
 ]
@@ -1867,6 +1868,7 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "ldf-check",
+ "ldf-i18n",
  "ldf-model",
  "ldf-store",
  "ldf-writer",
@@ -1875,6 +1877,15 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ldf-i18n"
+version = "0.1.0"
+dependencies = [
+ "ldf-check",
+ "ldf-model",
+ "serde",
 ]
 
 [[package]]
@@ -1909,6 +1920,7 @@ dependencies = [
  "egui_ltreeview",
  "ldf-check",
  "ldf-engine",
+ "ldf-i18n",
  "ldf-model",
  "ldf-syntax",
  "rfd",
