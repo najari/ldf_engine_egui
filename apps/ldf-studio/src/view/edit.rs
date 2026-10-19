@@ -5,10 +5,12 @@
 
 use crate::i18n::t;
 use crate::view::Selection;
+use ldf_engine::{NcfImport, plan_ncf_import};
 use ldf_model::{
     AttrsDraft, CompositeNode, Composition, Configuration, Diagnostic, DynamicFrames, EditOp,
-    EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind, InitValue, LdfModel, NodeId,
-    NodeRole, ProductId, Ref, SignalDraft, SignalId, SignalKind, SlotDraft, SlotEntry,
+    EncodingEntry, FrameDraft, FrameDraftKind, FrameId, FrameKind, GroupSignal, InitValue,
+    LdfModel, NodeId, NodeRole, ProductId, Ref, SignalDraft, SignalGroup, SignalGroups, SignalId,
+    SignalKind, SlotDraft, SlotEntry,
 };
 use std::collections::BTreeMap;
 
@@ -1340,6 +1342,134 @@ pub fn parse_dynamic_frames(text: &str, keyword: &str) -> Result<Option<DynamicF
     }))
 }
 
+// ---- 시그널 그룹 --------------------------------------------------------------------------------
+
+/// 시그널 그룹 대화상자의 초안. 그룹 전체를 한 덩어리 글로 고친다:
+///
+/// ```text
+/// 그룹1: 16
+///   시그널A, 0
+///   시그널B, 8
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignalGroupsUi {
+    /// 고치는 글.
+    pub text: String,
+    /// 열 때의 글(바꾸지 않았는지 알아보려고).
+    original: String,
+    /// 열 때 섹션이 있었는지(그룹이 하나도 없는 `Signal_groups { }` 포함).
+    had_section: bool,
+}
+
+impl SignalGroupsUi {
+    /// 지금 모델의 시그널 그룹으로 초안을 만든다. 없으면 빈 글이다.
+    pub fn from_model(m: &LdfModel) -> Self {
+        let text = m
+            .signal_groups
+            .as_ref()
+            .map(signal_groups_text)
+            .unwrap_or_default();
+        Self {
+            original: text.clone(),
+            text,
+            had_section: m.signal_groups.is_some(),
+        }
+    }
+
+    /// 보낼 연산. 글이 비어 있으면 시그널 그룹을 지운다. 비어 있던 `Signal_groups { }`를 그대로 확인하면 섹션은 남는다.
+    pub fn to_op(&self) -> Result<EditOp, String> {
+        let parsed = parse_signal_groups(&self.text)?;
+        let keep_empty = self.had_section && self.text == self.original && parsed.is_none();
+        Ok(EditOp::SetSignalGroups(if keep_empty {
+            Some(SignalGroups {
+                groups: Vec::new(),
+                span: None,
+            })
+        } else {
+            parsed
+        }))
+    }
+}
+
+/// 시그널 그룹을 글로 쓴다.
+pub fn signal_groups_text(g: &SignalGroups) -> String {
+    let mut s = String::new();
+    for group in &g.groups {
+        s.push_str(&format!("{}: {}\n", group.name, group.size_bits));
+        for m in &group.signals {
+            s.push_str(&format!("  {}, {}\n", m.signal, m.offset));
+        }
+    }
+    s
+}
+
+/// 글을 시그널 그룹으로 읽는다. 빈 글이면 `None`. 이름·중복 같은 모델 규칙은 연산이 따진다.
+pub fn parse_signal_groups(text: &str) -> Result<Option<SignalGroups>, String> {
+    let mut groups: Vec<SignalGroup> = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let n = i + 1;
+        if let Some((name, size)) = line.split_once(':') {
+            let Some(size_bits) = parse_uint(size) else {
+                return Err(tf!("{n}번째 줄: 그룹 크기는 숫자여야 한다"));
+            };
+            groups.push(SignalGroup {
+                name: name.trim().to_owned(),
+                size_bits,
+                signals: Vec::new(),
+            });
+        } else if let Some((signal, offset)) = line.split_once(',') {
+            let Some(group) = groups.last_mut() else {
+                return Err(tf!("{n}번째 줄: 시그널은 그룹 아래에 와야 한다"));
+            };
+            let Some(offset) = parse_uint(offset) else {
+                return Err(tf!("{n}번째 줄: 시작 비트는 숫자여야 한다"));
+            };
+            group.signals.push(GroupSignal {
+                signal: signal.trim().to_owned(),
+                offset,
+            });
+        } else {
+            return Err(tf!(
+                "{n}번째 줄: `그룹: 크기` 줄이나 `시그널, 시작 비트` 줄이어야 한다"
+            ));
+        }
+    }
+    Ok((!groups.is_empty()).then_some(SignalGroups { groups, span: None }))
+}
+
+// ---- NCF 가져오기 ------------------------------------------------------------------------------
+
+/// NCF 노드를 열린 LDF에 가져오는 대화상자의 내용: 계획(또는 충돌 사유)을 미리 만들어 둔다.
+#[derive(Clone, Debug)]
+pub struct NcfImportUi {
+    /// 가져올 노드 이름.
+    pub node: String,
+    /// 가져오기 계획, 충돌이 있으면 그 사유들.
+    pub plan: Result<NcfImport, Vec<String>>,
+}
+
+impl NcfImportUi {
+    /// `m`에 `n`을 가져오는 계획을 세운다.
+    pub fn new(m: &LdfModel, n: &ldf_ncf::NcfNode) -> Self {
+        Self {
+            node: n.name.clone(),
+            plan: plan_ncf_import(m, n),
+        }
+    }
+
+    /// 보낼 연산. 충돌이 있으면 사유를 줄바꿈으로 이은 글을 돌려준다.
+    pub fn to_op(&self) -> Result<EditOp, String> {
+        match &self.plan {
+            Ok(p) => Ok(p.op.clone()),
+            Err(errs) => Err(errs.join("\n")),
+        }
+    }
+}
+
 // ---- 미리 적용과 삭제 영향 --------------------------------------------------------------------
 
 /// 연산을 복사본에 적용해 본 결과.
@@ -1457,6 +1587,12 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
             .flat_map(|cfg| &cfg.composites)
             .map(|n| n.logical.len())
             .sum();
+        let members: usize = m
+            .signal_groups
+            .iter()
+            .flat_map(|g| &g.groups)
+            .map(|g| g.signals.len())
+            .sum();
         (
             placements,
             slots,
@@ -1466,6 +1602,7 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
             subs,
             sigs,
             logical,
+            members,
         )
     };
     let (b, a) = (count(before), count(after));
@@ -1476,6 +1613,7 @@ pub fn deletion_effects(before: &LdfModel, after: &LdfModel) -> Vec<String> {
         ("스포라딕·이벤트 트리거 연관 프레임 항목", b.3, a.3),
         ("노드 속성 블록", b.4, a.4),
         ("노드 구성의 논리 노드", b.7, a.7),
+        ("시그널 그룹의 시그널", b.8, a.8),
     ] {
         if now < was {
             out.push(tf!("{label} {}개 정리", was - now));

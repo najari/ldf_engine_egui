@@ -9,7 +9,8 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, ncf, props, schedule, status};
 use crate::view::edit::{
-    CompositionUi, DynamicFramesUi, EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi,
+    CompositionUi, DynamicFramesUi, EncodingUi, FrameUi, InlineScope, NcfImportUi, NodeUi,
+    ScheduleUi, SignalGroupsUi, SignalUi,
 };
 use crate::view::{self, SelKey, Selection};
 use eframe::Storage;
@@ -187,7 +188,8 @@ impl StudioApp {
             ctx: Some(cc.egui_ctx.clone()),
             rules: RuleSettings::default(),
         };
-        if let Some(arg) = std::env::args_os().nth(1) {
+        // 인자로 받은 파일을 모두 연다(LDF는 마지막 것이 남고, NCF는 별도 창으로 뜬다)
+        for arg in std::env::args_os().skip(1) {
             app.import(PathBuf::from(arg));
         }
         app
@@ -346,6 +348,22 @@ impl StudioApp {
     fn open_dynamic_frames(&mut self) {
         if let Some(snap) = &self.snapshot {
             self.st.edit.dialog = Some(Dialog::DynamicFrames(DynamicFramesUi::from_model(
+                &snap.model,
+            )));
+        }
+    }
+
+    /// 지금 NCF 창의 노드를 열린 LDF에 가져오는 대화상자를 연다.
+    fn open_ncf_import(&mut self) {
+        if let (Some(snap), Some(node)) = (&self.snapshot, self.st.ncf.current_node()) {
+            self.st.edit.dialog = Some(Dialog::NcfImport(NcfImportUi::new(&snap.model, node)));
+        }
+    }
+
+    /// 시그널 그룹(Signal_groups) 대화상자를 연다.
+    fn open_signal_groups(&mut self) {
+        if let Some(snap) = &self.snapshot {
+            self.st.edit.dialog = Some(Dialog::SignalGroups(SignalGroupsUi::from_model(
                 &snap.model,
             )));
         }
@@ -847,6 +865,13 @@ impl StudioApp {
                     .clicked()
                 {
                     self.open_dynamic_frames();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new(t("시그널 그룹…")))
+                    .clicked()
+                {
+                    self.open_signal_groups();
                     ui.close();
                 }
                 ui.separator();
@@ -1445,7 +1470,9 @@ impl eframe::App for StudioApp {
             self.welcome(ui);
         }
         self.revisions_window(&ctx);
-        ncf::show(&ctx, &mut self.st.ncf);
+        if ncf::show(&ctx, &mut self.st.ncf, self.snapshot.is_some()) {
+            self.open_ncf_import();
+        }
         if self.show_perf {
             let ms = started.elapsed().as_secs_f32() * 1000.0;
             self.perf = Some(self.perf.map_or(ms, |p| p * 0.9 + ms * 0.1));

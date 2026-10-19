@@ -492,6 +492,55 @@ fn dynamic_frames_with_an_unexpected_shape_stay_raw() {
 }
 
 #[test]
+fn signal_groups_are_modelled_including_the_empty_section() {
+    let l = load("Signal_groups { G1: 16 { S1, 0; S2, 8; } G2: 8 { S3, 0; } }");
+    assert!(l.diagnostics.is_empty(), "{:?}", l.diagnostics);
+    let g = l.model.signal_groups.expect("signal_groups");
+    assert_eq!(g.groups.len(), 2);
+    assert_eq!(
+        (g.groups[0].name.as_str(), g.groups[0].size_bits),
+        ("G1", 16)
+    );
+    assert_eq!(
+        g.groups[0].signals,
+        vec![
+            GroupSignal {
+                signal: "S1".into(),
+                offset: 0
+            },
+            GroupSignal {
+                signal: "S2".into(),
+                offset: 8
+            },
+        ]
+    );
+    assert!(l.model.unknown_sections.is_empty());
+    // 비어 있는 섹션도 모델이다(Vector 시험 파일에 있다)
+    let l = load("Signal_groups {\n}");
+    assert_eq!(l.model.signal_groups.map(|g| g.groups.len()), Some(0));
+    assert!(l.model.unknown_sections.is_empty());
+}
+
+#[test]
+fn signal_groups_with_an_unexpected_shape_stay_raw() {
+    for src in [
+        "Signal_groups { G1 { S1, 0; } }",
+        "Signal_groups { G1: x { S1, 0; } }",
+        "Signal_groups { G1: 8 { S1; } }",
+        "Signal_groups { G1: 8 { S1, a; } }",
+        "Signal_groups { G1: 99999999999 { S1, 0; } }",
+    ] {
+        let l = load(src);
+        assert!(l.model.signal_groups.is_none(), "{src}");
+        assert_eq!(l.model.unknown_sections.len(), 1, "{src}");
+    }
+    // 두 번째 섹션은 원문으로 남는다
+    let l = load("Signal_groups { }\nSignal_groups { G: 8 { S, 0; } }");
+    assert!(l.model.signal_groups.is_some());
+    assert_eq!(l.model.unknown_sections.len(), 1);
+}
+
+#[test]
 fn section_order_is_recorded() {
     let m = loaded().model;
     assert_eq!(

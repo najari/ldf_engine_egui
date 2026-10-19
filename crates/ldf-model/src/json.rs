@@ -233,6 +233,15 @@ pub fn to_json(m: &LdfModel) -> Value {
         })),
         "dynamic_frames": m.dynamic_frames.as_ref()
             .map(|d| json!({ "keyword": d.keyword, "ids": d.ids })),
+        "signal_groups": m.signal_groups.as_ref().map(|g| json!({
+            "groups": g.groups.iter().map(|g| json!({
+                "name": g.name,
+                "size_bits": g.size_bits,
+                "signals": g.signals.iter()
+                    .map(|s| json!({ "signal": s.signal, "offset": s.offset }))
+                    .collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        })),
         "unknown_sections": m.unknown_sections.iter()
             .map(|s| json!({ "name": s.name, "text": s.text })).collect::<Vec<_>>(),
     })

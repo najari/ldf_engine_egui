@@ -57,8 +57,8 @@ pub(crate) fn save(conn: &mut Connection, r: &NewRevision<'_>) -> Result<i64> {
         "INSERT INTO ldf_revision (project_id, parent_id, label, source_name, has_marker, \
          protocol_ver, language_ver, speed_bps, channel, ldf_file_revision, big_endian, encoding, \
          source_hash, source_text, section_order, lower_notes, leading_comment, composition_json, \
-         dynamic_frames_json) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+         dynamic_frames_json, signal_groups_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             r.project_id,
             r.parent_id,
@@ -86,6 +86,10 @@ pub(crate) fn save(conn: &mut Connection, r: &NewRevision<'_>) -> Result<i64> {
                 .map(serde_json::to_string)
                 .transpose()?,
             m.dynamic_frames
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+            m.signal_groups
                 .as_ref()
                 .map(serde_json::to_string)
                 .transpose()?,

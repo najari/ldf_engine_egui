@@ -347,3 +347,27 @@ fn dynamic_frames_are_kept_for_2_0_and_dropped_for_2_1_and_later() {
         );
     }
 }
+
+#[test]
+fn signal_groups_round_trip_and_keep_their_place() {
+    let src = "LIN_description_file;\nLIN_protocol_version = \"1.3\";\nNodes { Master: M, 1 ms, 0 ms; Slaves: A; }\n\
+Signals { S1: 8, 0, M, A; S2: 8, 0, M, A; }\n\
+Frames { F: 1, M, 2 { S1, 0; S2, 8; } }\n\
+Signal_groups { G: 16 { S1, 0; S2, 8; } }\n\
+Signal_encoding_types { E { logical_value, 0, \"off\"; } }\n";
+    let m = load(src).model;
+    assert!(m.signal_groups.is_some());
+    let w = write(&m, &WriteOptions::default()).text;
+    assert!(semantically_equal(&m, &load(&w).model), "{w}");
+    let pos = |s: &str| w.find(s).unwrap_or(usize::MAX);
+    assert!(
+        pos("Frames") < pos("Signal_groups") && pos("Signal_groups") < pos("Signal_encoding_types"),
+        "{w}"
+    );
+    assert!(w.contains("G: 16 {") && w.contains("S2, 8;"), "{w}");
+    // 비어 있는 섹션도 그대로 나온다
+    let empty = load("LIN_description_file;\nSignal_groups {\n}\n").model;
+    let w = write(&empty, &WriteOptions::default()).text;
+    assert!(w.contains("Signal_groups"), "{w}");
+    assert!(load(&w).model.signal_groups.is_some());
+}

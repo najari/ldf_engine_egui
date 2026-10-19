@@ -197,15 +197,7 @@ pub fn encoding_lines(e: &NcfEncoding) -> Vec<String> {
 
 /// 노드에서 보여 줄 인코딩 전부: `encoding` 섹션의 것과 시그널 안에서 정의한 것.
 pub fn all_encodings(n: &NcfNode) -> Vec<&NcfEncoding> {
-    let inline = n
-        .frames
-        .iter()
-        .flat_map(|f| &f.signals)
-        .filter_map(|s| match &s.encoding {
-            Some(EncodingRef::Inline(e)) => Some(e),
-            _ => None,
-        });
-    n.encodings.iter().chain(inline).collect()
+    n.all_encodings()
 }
 
 #[cfg(test)]

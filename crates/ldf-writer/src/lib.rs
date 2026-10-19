@@ -180,6 +180,11 @@ fn section_text(m: &LdfModel, name: &str, in_order: bool) -> Option<String> {
     if let Some(d) = m.dynamic_frames.as_ref().filter(|d| d.keyword == name) {
         raw.push(emit::dynamic_frames(d));
     }
+    if name == "Signal_groups"
+        && let Some(g) = &m.signal_groups
+    {
+        raw.push(emit::signal_groups(g));
+    }
     raw.extend(
         m.unknown_sections
             .iter()

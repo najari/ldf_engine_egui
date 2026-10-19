@@ -169,6 +169,14 @@ pub fn lower(src: &str, file: &File) -> (LdfModel, Vec<Diagnostic>) {
             lw.model.dynamic_frames = Some(d);
             continue;
         }
+        // 시그널 그룹도 같다: `그룹: 크기 { 시그널, 오프셋; }` 모양일 때만 모델로 읽는다
+        if name == "Signal_groups"
+            && lw.model.signal_groups.is_none()
+            && let Some(g) = signal_groups(src, stmt, block)
+        {
+            lw.model.signal_groups = Some(g);
+            continue;
+        }
         if !KEPT_RAW.contains(&name) {
             lw.diags.push(Diagnostic::warning(
                 codes::UNKNOWN_SECTION,
@@ -300,6 +308,58 @@ fn dynamic_frames(src: &str, keyword: &str, stmt: &Stmt, block: &Block) -> Optio
     (!ids.is_empty()).then(|| DynamicFrames {
         keyword: keyword.to_owned(),
         ids,
+        span: Some(stmt.span),
+    })
+}
+
+/// 시그널 그룹 섹션을 읽는다(LIN 1.3). 모양이 다르면 `None`. 비어 있는 섹션은 그룹이 없는 채로 읽는다.
+///
+/// ```text
+/// Signal_groups { <그룹>: <크기(bit)> { <시그널>, <오프셋>; … } … }
+/// ```
+fn signal_groups(src: &str, stmt: &Stmt, block: &Block) -> Option<SignalGroups> {
+    let to_u32 = |t: &Token| -> Option<u32> {
+        (t.kind == TokenKind::Number)
+            .then(|| parse_u64(t.span.text(src)))
+            .flatten()
+            .and_then(|v| u32::try_from(v).ok())
+    };
+    let mut groups = Vec::new();
+    for s in &block.stmts {
+        let [
+            Elem::Token(name),
+            Elem::Token(colon),
+            Elem::Token(size),
+            Elem::Block(body),
+        ] = s.elems.as_slice()
+        else {
+            return None;
+        };
+        if name.kind != TokenKind::Ident || colon.kind != TokenKind::Punct(':') {
+            return None;
+        }
+        let mut signals = Vec::new();
+        for m in &body.stmts {
+            let [Elem::Token(sig), Elem::Token(comma), Elem::Token(off)] = m.elems.as_slice()
+            else {
+                return None;
+            };
+            if sig.kind != TokenKind::Ident || comma.kind != TokenKind::Punct(',') {
+                return None;
+            }
+            signals.push(GroupSignal {
+                signal: sig.span.text(src).to_owned(),
+                offset: to_u32(off)?,
+            });
+        }
+        groups.push(SignalGroup {
+            name: name.span.text(src).to_owned(),
+            size_bits: to_u32(size)?,
+            signals,
+        });
+    }
+    Some(SignalGroups {
+        groups,
         span: Some(stmt.span),
     })
 }

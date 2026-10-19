@@ -66,14 +66,14 @@ fn section(ui: &mut Ui, id: &str, title: &'static str, rows: &[Row]) {
         });
 }
 
-/// NCF 창을 그린다.
-pub fn show(ctx: &Context, st: &mut NcfState) {
+/// NCF 창을 그린다. `can_import`는 가져올 LDF가 열려 있는지이고, 가져오기 버튼을 눌렀으면 `true`를 돌려준다.
+pub fn show(ctx: &Context, st: &mut NcfState, can_import: bool) -> bool {
     if !st.open {
-        return;
+        return false;
     }
     let Some(doc) = st.doc.take() else {
         st.open = false;
-        return;
+        return false;
     };
     let name = st
         .path
@@ -81,18 +81,28 @@ pub fn show(ctx: &Context, st: &mut NcfState) {
         .and_then(Path::file_name)
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let mut open = true;
+    let mut import = false;
     egui::Window::new(format!("NCF — {name}"))
         .id(egui::Id::new("ncf-window"))
         .open(&mut open)
         .default_size([900.0, 620.0])
         .min_size([520.0, 320.0])
         .resizable(true)
-        .show(ctx, |ui| body(ui, &doc, st));
+        .show(ctx, |ui| import = body(ui, &doc, st, can_import));
     st.doc = Some(doc);
     st.open = open;
+    import
 }
 
-fn body(ui: &mut Ui, doc: &NcfDocument, st: &mut NcfState) {
+impl NcfState {
+    /// 지금 보고 있는 노드(가져오기 대상).
+    pub fn current_node(&self) -> Option<&ldf_ncf::NcfNode> {
+        self.doc.as_ref()?.file.nodes.get(self.node)
+    }
+}
+
+fn body(ui: &mut Ui, doc: &NcfDocument, st: &mut NcfState, can_import: bool) -> bool {
+    let mut import = false;
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         Grid::new("ncf-file").num_columns(2).show(ui, |ui| {
             ui.weak(t("파일"));
@@ -129,10 +139,17 @@ fn body(ui: &mut Ui, doc: &NcfDocument, st: &mut NcfState) {
                         }
                     });
             }
+            ui.add_space(4.0);
+            import = ui
+                .add_enabled(can_import, egui::Button::new(t("열린 LDF에 가져오기…")))
+                .on_hover_text(t("이 노드를 열려 있는 LDF의 슬레이브로 더한다(프레임·시그널·인코딩·노드 속성). Undo로 되돌릴 수 있다."))
+                .on_disabled_hover_text(t("가져오려면 LDF를 먼저 열어야 한다"))
+                .clicked();
             node(ui, doc, st);
         }
         diagnostics(ui, doc);
     });
+    import
 }
 
 fn node(ui: &mut Ui, doc: &NcfDocument, st: &mut NcfState) {

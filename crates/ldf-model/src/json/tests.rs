@@ -107,6 +107,7 @@ LIN_speed = 19.2 kbps;
 Nodes { Master: M, 5 ms, 0.1 ms; Slaves: A, B; }
 composite { configuration cfg { Phys { A, B; } } }
 dynamic_frames { 1, 0x2 }
+Signal_groups { G: 24 { Cmd, 0; Pos, 8; } }
 Signals { Cmd: 8, 0, M, A, B; Pos: 16, 0, A, M; Blob: 16, {1, 2}, B, M; Orphan: 4, 0, Ghost, M; }
 Diagnostic_signals { MasterReqB0: 8, 0; }
 Frames { FCmd: 1, M, 2 { Cmd, 0; } FA: 2, A, 2 { Pos, 0; } FB: 3, B, 2 { Blob, 0; } }
@@ -183,6 +184,10 @@ fn objects_refer_to_each_other_by_name() {
     assert_eq!(
         j["dynamic_frames"],
         serde_json::json!({ "keyword": "dynamic_frames", "ids": [1, 2] })
+    );
+    assert_eq!(
+        j["signal_groups"],
+        serde_json::json!({ "groups": [{ "name": "G", "size_bits": 24, "signals": [{ "signal": "Cmd", "offset": 0 }, { "signal": "Pos", "offset": 8 }] }] })
     );
     assert_eq!(j["unknown_sections"].as_array().map(Vec::len), Some(1));
     assert_eq!(

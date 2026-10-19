@@ -249,6 +249,19 @@ pub struct NcfEncoding {
 }
 
 impl NcfNode {
+    /// ncoding 섹션의 인코딩과 시그널 안에서 정의한 인코딩 전부(이 순서로).
+    pub fn all_encodings(&self) -> Vec<&NcfEncoding> {
+        let inline =
+            self.frames
+                .iter()
+                .flat_map(|f| &f.signals)
+                .filter_map(|s| match &s.encoding {
+                    Some(EncodingRef::Inline(e)) => Some(e),
+                    _ => None,
+                });
+        self.encodings.iter().chain(inline).collect()
+    }
+
     /// 이름으로 인코딩을 찾는다(시그널 안에서 정의한 것도 본다).
     pub fn find_encoding(&self, name: &str) -> Option<&NcfEncoding> {
         self.encodings.iter().find(|e| e.name == name).or_else(|| {

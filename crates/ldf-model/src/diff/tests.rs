@@ -304,3 +304,32 @@ fn dynamic_frame_changes_are_reported_as_one_object() {
     );
     assert!(diff(&a, &a).is_empty());
 }
+
+#[test]
+fn signal_group_changes_are_reported_per_group() {
+    let a = load(&format!(
+        "{A}Signal_groups {{ G1: 16 {{ S1, 0; }} G2: 8 {{ S2, 0; }} }}"
+    ))
+    .model;
+    let b = load(&format!(
+        "{A}Signal_groups {{ G1: 16 {{ S1, 0; S2, 8; }} G3: 8 {{ S1, 0; }} }}"
+    ))
+    .model;
+    let d = diff(&a, &b);
+    let changed = find(&d, ObjectKind::SignalGroup, "G1").expect("G1");
+    assert_eq!(changed.change, Change::Changed);
+    let f = field(changed, "signals").expect("signals");
+    assert_eq!(
+        (f.before.as_str(), f.after.as_str()),
+        ("S1@0", "S1@0, S2@8")
+    );
+    assert_eq!(
+        find(&d, ObjectKind::SignalGroup, "G2").map(|e| &e.change),
+        Some(&Change::Removed)
+    );
+    assert_eq!(
+        find(&d, ObjectKind::SignalGroup, "G3").map(|e| &e.change),
+        Some(&Change::Added)
+    );
+    assert!(diff(&a, &a).is_empty());
+}

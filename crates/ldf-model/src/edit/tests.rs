@@ -1,5 +1,5 @@
 use super::*;
-use crate::{CompositeNode, Configuration, load};
+use crate::{CompositeNode, Configuration, GroupSignal, SignalGroup, load};
 
 /// 모든 종류의 참조를 가진 작은 클러스터(참조가 전부 해석된다).
 const SAMPLE: &str = r#"
@@ -666,6 +666,123 @@ fn invalid_dynamic_frames_are_refused_and_leave_the_model_alone() {
         );
         assert_eq!(m, before);
     }
+}
+
+/// (그룹 이름, 크기, [(시그널, 오프셋)]).
+type GroupSpec<'a> = (&'a str, u32, &'a [(&'a str, u32)]);
+
+fn groups(spec: &[GroupSpec<'_>]) -> SignalGroups {
+    SignalGroups {
+        groups: spec
+            .iter()
+            .map(|(name, size, members)| SignalGroup {
+                name: (*name).to_owned(),
+                size_bits: *size,
+                signals: members
+                    .iter()
+                    .map(|(s, o)| GroupSignal {
+                        signal: (*s).to_owned(),
+                        offset: *o,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        span: None,
+    }
+}
+
+#[test]
+fn signal_groups_can_be_set_replaced_and_removed() {
+    let mut m = model();
+    assert!(m.signal_groups.is_none());
+    let g = groups(&[("G1", 16, &[("Pos", 0)])]);
+    EditOp::SetSignalGroups(Some(g.clone()))
+        .apply(&mut m)
+        .expect("set");
+    assert_eq!(m.signal_groups, Some(g));
+    // 새 섹션은 Signal_encoding_types 바로 앞에 놓인다
+    let enc = m
+        .section_order
+        .iter()
+        .position(|n| n == "Signal_encoding_types")
+        .expect("Signal_encoding_types");
+    assert_eq!(m.section_order[enc - 1], "Signal_groups");
+    // 바꿔도 자리를 지키고 중복이 생기지 않는다. 그룹이 하나도 없는 섹션도 된다
+    EditOp::SetSignalGroups(Some(groups(&[])))
+        .apply(&mut m)
+        .expect("empty");
+    assert_eq!(
+        m.section_order
+            .iter()
+            .filter(|n| n.as_str() == "Signal_groups")
+            .count(),
+        1
+    );
+    EditOp::SetSignalGroups(None).apply(&mut m).expect("remove");
+    assert!(m.signal_groups.is_none());
+    assert!(!m.section_order.iter().any(|n| n == "Signal_groups"));
+}
+
+#[test]
+fn invalid_signal_groups_are_refused_and_leave_the_model_alone() {
+    let before = model();
+    for g in [
+        groups(&[("1bad", 8, &[])]),
+        groups(&[("G", 8, &[]), ("G", 8, &[])]),
+        groups(&[("G", 0, &[])]),
+        groups(&[("G", 8, &[("Pos", 0), ("Pos", 8)])]),
+        groups(&[("G", 8, &[("2bad", 0)])]),
+    ] {
+        let mut m = before.clone();
+        assert!(
+            EditOp::SetSignalGroups(Some(g.clone()))
+                .apply(&mut m)
+                .is_err(),
+            "{g:?}"
+        );
+        assert_eq!(m, before);
+    }
+}
+
+#[test]
+fn renaming_and_deleting_signals_follow_into_the_signal_groups() {
+    let mut m = model();
+    EditOp::SetSignalGroups(Some(groups(&[("G", 32, &[("Pos", 0), ("Err", 16)])])))
+        .apply(&mut m)
+        .expect("set");
+    EditOp::EditSignal {
+        name: "Pos".into(),
+        draft: SignalDraft {
+            name: "Position".into(),
+            size_bits: 16,
+            init: InitValue::Scalar(0),
+            publisher: Some("A".into()),
+            subscribers: vec!["M".into()],
+            encoding: None,
+        },
+    }
+    .apply(&mut m)
+    .expect("rename");
+    let names = |m: &LdfModel| -> Vec<String> {
+        m.signal_groups.as_ref().map_or_else(Vec::new, |g| {
+            g.groups[0]
+                .signals
+                .iter()
+                .map(|s| s.signal.clone())
+                .collect()
+        })
+    };
+    assert_eq!(names(&m), ["Position", "Err"]);
+    EditOp::DeleteSignal("Err".into())
+        .apply(&mut m)
+        .expect("delete");
+    assert_eq!(names(&m), ["Position"]);
+    // 노드를 지우면 그 노드가 발행하던 시그널도 그룹에서 빠진다(그룹은 남는다)
+    EditOp::DeleteNode("A".into())
+        .apply(&mut m)
+        .expect("delete node");
+    assert!(names(&m).is_empty());
+    assert_eq!(m.signal_groups.as_ref().map(|g| g.groups.len()), Some(1));
 }
 
 #[test]

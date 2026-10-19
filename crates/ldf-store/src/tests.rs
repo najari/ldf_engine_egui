@@ -58,6 +58,7 @@ fn assert_same(a: &ldf_model::LdfModel, b: &ldf_model::LdfModel) {
     assert_eq!(a.schedules, b.schedules, "schedules");
     assert_eq!(a.composition, b.composition, "composition");
     assert_eq!(a.dynamic_frames, b.dynamic_frames, "dynamic_frames");
+    assert_eq!(a.signal_groups, b.signal_groups, "signal_groups");
     assert_eq!(a.unknown_sections, b.unknown_sections, "unknown_sections");
     assert_eq!(a.section_order, b.section_order, "section_order");
 }
@@ -364,4 +365,29 @@ fn rule_settings_persist_in_the_project_file() {
     store.check_integrity().expect("integrity");
     drop(store);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn signal_groups_survive_with_and_without_groups() {
+    let mut store = Store::open_in_memory().expect("open");
+    let project = store.ensure_project("p").expect("project");
+    let (id, loaded) = save(
+        &mut store,
+        project,
+        None,
+        "Signal_groups { G: 16 { S1, 0; S2, 8; } }",
+    );
+    let back = store.load_revision(id).expect("load");
+    assert_same(&back.model, &loaded.model);
+    assert_eq!(back.model.signal_groups.map(|g| g.groups.len()), Some(1));
+    // 비어 있는 섹션과 원문으로 남은 모양
+    let (id, loaded) = save(&mut store, project, None, "Signal_groups { }");
+    let back = store.load_revision(id).expect("load");
+    assert_same(&back.model, &loaded.model);
+    assert_eq!(back.model.signal_groups.map(|g| g.groups.len()), Some(0));
+    let (id, loaded) = save(&mut store, project, None, "Signal_groups { G { S, 0; } }");
+    let back = store.load_revision(id).expect("load");
+    assert_same(&back.model, &loaded.model);
+    assert!(back.model.signal_groups.is_none());
+    assert_eq!(back.model.unknown_sections.len(), 1);
 }

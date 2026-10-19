@@ -10,6 +10,7 @@ pub mod diff_report;
 mod error;
 mod export;
 mod ncf;
+mod ncf_import;
 mod session;
 mod worker;
 
@@ -17,6 +18,7 @@ pub use analysis::{Analysis, analyze, analyze_text, analyze_text_with, analyze_w
 pub use error::{EngineError, Result};
 pub use export::{ExportFormat, ExportOptions, ExportReport};
 pub use ncf::{NcfDocument, is_ncf_path, read_ncf};
+pub use ncf_import::{NcfImport, plan_ncf_import};
 pub use session::{ImportOutcome, ModelSnapshot, Session};
 pub use worker::{Command, Engine, Event};
 

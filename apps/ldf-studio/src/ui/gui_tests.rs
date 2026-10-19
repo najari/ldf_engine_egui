@@ -9,7 +9,7 @@ use super::export::{self, Blocked, ExportAction, ExportState};
 use super::ncf::{self, NcfState};
 use super::revisions::{self, DiffShown, RevAction, RevState};
 use super::{UiState, status};
-use crate::view::edit::{CompositionUi, DynamicFramesUi, FrameUi};
+use crate::view::edit::{CompositionUi, DynamicFramesUi, FrameUi, NcfImportUi, SignalGroupsUi};
 use crate::view::{NavTab, SelKey, Selection};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -1440,7 +1440,12 @@ fn ncf_harness(src: &str) -> Harness<'static, NcfState> {
     st.show_file("C:/x/motor.ncf".into(), read_ncf(src.as_bytes()));
     Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, s: &mut NcfState| ncf::show(ui.ctx(), s), st)
+        .build_ui_state(
+            |ui, s: &mut NcfState| {
+                ncf::show(ui.ctx(), s, false);
+            },
+            st,
+        )
 }
 
 #[test]
@@ -1508,7 +1513,12 @@ fn the_ncf_window_is_not_clipped_at_common_scales() {
         let mut harness = Harness::builder()
             .with_size(egui::vec2(w, h))
             .with_pixels_per_point(ppp)
-            .build_ui_state(|ui, s: &mut NcfState| ncf::show(ui.ctx(), s), st);
+            .build_ui_state(
+                |ui, s: &mut NcfState| {
+                    ncf::show(ui.ctx(), s, false);
+                },
+                st,
+            );
         harness.run();
         // 프레임을 눌러 시그널 표까지 펼친 모습도 본다
         harness.get_by_label("State").click();
@@ -1521,4 +1531,114 @@ fn the_ncf_window_is_not_clipped_at_common_scales() {
         );
     }
     assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
+}
+
+// ---- 시그널 그룹 대화상자 ------------------------------------------------------------------------
+
+#[test]
+fn signal_groups_dialog_sends_the_edited_text_as_one_operation() {
+    let snap = snapshot(SAMPLE);
+    let mut ui = SignalGroupsUi::from_model(&snap.model);
+    ui.text = "G1: 24\n  Cmd, 0\n  Pos, 8\n".to_owned();
+    let mut h = dialog_harness(Dialog::SignalGroups(ui), snap);
+    h.run();
+    h.get_by_label("시그널 그룹");
+    h.get_by_label("OK").click();
+    h.run();
+    let sent = &h.state().sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let EditOp::SetSignalGroups(Some(g)) = &sent[0] else {
+        panic!("{:?}", sent[0]);
+    };
+    assert_eq!(g.groups[0].signals.len(), 2);
+    assert!(h.state().st.dialog.is_none(), "확인하면 대화상자가 닫힌다");
+}
+
+#[test]
+fn signal_groups_dialog_shows_why_it_cannot_be_confirmed() {
+    for (text, why) in [
+        ("G: x", "1번째 줄"),
+        ("G: 8\n  Cmd, 0\n  Cmd, 4", "두 번 나온다"),
+        ("G: 0", "1비트 이상"),
+    ] {
+        let snap = snapshot(SAMPLE);
+        let mut ui = SignalGroupsUi::from_model(&snap.model);
+        ui.text = text.to_owned();
+        let mut h = dialog_harness(Dialog::SignalGroups(ui), snap);
+        h.run();
+        h.get_by_label_contains(why);
+        assert!(
+            h.get_by_label("OK").accesskit_node().is_disabled(),
+            "{text}"
+        );
+    }
+}
+
+// ---- NCF 가져오기 -------------------------------------------------------------------------------
+
+#[test]
+fn the_ncf_window_offers_import_only_when_an_ldf_is_open() {
+    for (can_import, expect_enabled) in [(false, false), (true, true)] {
+        let mut st = NcfState::default();
+        st.show_file("C:/x/motor.ncf".into(), read_ncf(NCF_SAMPLE.as_bytes()));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                move |ui, s: &mut (NcfState, bool)| {
+                    if ncf::show(ui.ctx(), &mut s.0, can_import) {
+                        s.1 = true;
+                    }
+                },
+                (st, false),
+            );
+        h.run();
+        let button = h.get_by_label("열린 LDF에 가져오기…");
+        assert_eq!(!button.accesskit_node().is_disabled(), expect_enabled);
+        if expect_enabled {
+            button.click();
+            h.run();
+            assert!(h.state().1, "버튼을 누르면 가져오기를 요청한다");
+        }
+    }
+}
+
+#[test]
+fn ncf_import_dialog_sends_one_batch_that_adds_the_node() {
+    let snap = snapshot(SAMPLE);
+    let node = ldf_ncf::parse(NCF_SAMPLE).file.nodes.remove(0);
+    let mut h = dialog_harness(
+        Dialog::NcfImport(NcfImportUi::new(&snap.model, &node)),
+        snap,
+    );
+    h.run();
+    h.get_by_label("NCF 노드 가져오기");
+    h.get_by_label_contains("새로 생기는 것: 프레임 3개, 시그널 3개, 인코딩 1개");
+    h.get_by_label_contains("스케줄 테이블에는 넣지 않았다");
+    h.get_by_label("OK").click();
+    h.run();
+    let sent = &h.state().sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let EditOp::Batch(ops) = &sent[0] else {
+        panic!("{:?}", sent[0]);
+    };
+    assert!(matches!(&ops[0], EditOp::AddSlave(n) if n == "Motor"));
+    assert!(h.state().st.dialog.is_none());
+}
+
+#[test]
+fn ncf_import_dialog_shows_why_it_cannot_import_and_disables_ok() {
+    let snap = snapshot(SAMPLE);
+    // LDF에 이미 있는 이름의 노드
+    let node = ldf_ncf::parse("node_capability_file; node A { }")
+        .file
+        .nodes
+        .remove(0);
+    let mut h = dialog_harness(
+        Dialog::NcfImport(NcfImportUi::new(&snap.model, &node)),
+        snap,
+    );
+    h.run();
+    h.get_by_label("가져올 수 없는 이유");
+    h.get_by_label_contains("`A`이(가) 이미 있다");
+    assert!(h.get_by_label("OK").accesskit_node().is_disabled());
 }

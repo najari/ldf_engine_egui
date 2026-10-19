@@ -20,6 +20,7 @@ static MIGRATION_LIST: &[M<'static>] = &[
     M::up(include_str!("../migrations/0004_rule_setting.sql")),
     M::up(include_str!("../migrations/0005_composition.sql")),
     M::up(include_str!("../migrations/0006_dynamic_frames.sql")),
+    M::up(include_str!("../migrations/0007_signal_groups.sql")),
 ];
 static MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 

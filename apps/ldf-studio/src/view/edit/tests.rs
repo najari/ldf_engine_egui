@@ -667,3 +667,102 @@ fn dynamic_frames_text_errors_name_the_token_and_the_model_rules_come_from_the_o
         assert!(pv.error.is_some(), "{text}");
     }
 }
+
+#[test]
+fn signal_groups_dialog_starts_empty_and_creates_the_section() {
+    let m = model();
+    let mut ui = SignalGroupsUi::from_model(&m);
+    assert_eq!(ui.text, "");
+    // 비운 채로 확인하면 아무것도 바뀌지 않는다
+    assert_eq!(apply(&m, &ui.to_op().expect("op")), m);
+    ui.text = "G1: 32\n  Pos, 0\n  Err, 16\n".to_owned();
+    let after = apply(&m, &ui.to_op().expect("op"));
+    let g = after.signal_groups.as_ref().expect("signal_groups");
+    assert_eq!(
+        (g.groups[0].name.as_str(), g.groups[0].size_bits),
+        ("G1", 32)
+    );
+    assert_eq!(g.groups[0].signals[1].offset, 16);
+    // 다시 열면 같은 글이 나오고, 확인해도 바뀌지 않는다
+    let again = SignalGroupsUi::from_model(&after);
+    assert_eq!(again.text, "G1: 32\n  Pos, 0\n  Err, 16\n");
+    assert_eq!(apply(&after, &again.to_op().expect("op")), after);
+    // 지우기
+    let cleared = SignalGroupsUi {
+        text: String::new(),
+        ..again
+    };
+    assert!(
+        apply(&after, &cleared.to_op().expect("op"))
+            .signal_groups
+            .is_none()
+    );
+}
+
+#[test]
+fn an_empty_signal_groups_section_survives_an_untouched_ok() {
+    let m = load(&format!("{SAMPLE}\nSignal_groups {{ }}\n")).model;
+    assert_eq!(m.signal_groups.as_ref().map(|g| g.groups.len()), Some(0));
+    let ui = SignalGroupsUi::from_model(&m);
+    let after = apply(&m, &ui.to_op().expect("op"));
+    assert_eq!(
+        after.signal_groups.as_ref().map(|g| g.groups.len()),
+        Some(0)
+    );
+    // 글을 쓰면 그룹이 생기고, 그 글을 지우면 섹션도 사라진다
+    let written = SignalGroupsUi {
+        text: "G: 8\n".to_owned(),
+        ..ui.clone()
+    };
+    let with = apply(&m, &written.to_op().expect("op"));
+    assert_eq!(with.signal_groups.as_ref().map(|g| g.groups.len()), Some(1));
+    let cleared = SignalGroupsUi {
+        text: String::new(),
+        original: "G: 8\n".to_owned(),
+        ..ui
+    };
+    assert!(
+        apply(&with, &cleared.to_op().expect("op"))
+            .signal_groups
+            .is_none()
+    );
+}
+
+#[test]
+fn signal_groups_text_errors_name_the_line() {
+    assert_eq!(parse_signal_groups(""), Ok(None));
+    for (src, line) in [
+        ("G: x\n", 1),
+        ("Pos, 0\n", 1),
+        ("G: 8\n  Pos, a\n", 2),
+        ("G: 8\n  Pos\n", 2),
+        ("\nbogus\n", 2),
+    ] {
+        let e = parse_signal_groups(src).expect_err(src);
+        assert!(e.starts_with(&format!("{line}번째 줄")), "{src:?}: {e}");
+    }
+    // 모델 규칙(이름·중복)은 연산이 따진다
+    let m = model();
+    let ui = SignalGroupsUi {
+        text: "G: 8\n  Pos, 0\n  Pos, 4\n".to_owned(),
+        ..SignalGroupsUi::from_model(&m)
+    };
+    assert!(preview(&m, &ui.to_op().expect("op")).error.is_some());
+}
+
+#[test]
+fn signal_groups_preview_reports_unknown_signals() {
+    // LIN 1.3에서만 내용을 따진다(0110)
+    let m = load(&SAMPLE.replace("\"2.1\"", "\"1.3\"")).model;
+    let ui = SignalGroupsUi {
+        text: "G: 8\n  Ghost, 0\n".to_owned(),
+        ..SignalGroupsUi::from_model(&m)
+    };
+    let pv = preview(&m, &ui.to_op().expect("op"));
+    assert!(pv.error.is_none());
+    assert!(
+        pv.new_findings.iter().any(|d| d.code == 110),
+        "{:?}",
+        pv.new_findings
+    );
+}

@@ -8,9 +8,9 @@ use crate::ui::bits;
 use crate::ui::icons::{self, Icon};
 use crate::view::SelKey;
 use crate::view::edit::{
-    CompositionUi, DynamicFramesUi, EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi,
-    Preview, ScheduleUi, SignalUi, SlotKind, SlotUi, deletion_effects, frame_names, node_names,
-    preview,
+    CompositionUi, DynamicFramesUi, EncodingUi, EntryUi, FrameUi, KindUi, NcfImportUi, NewSignalUi,
+    NodeUi, Preview, ScheduleUi, SignalGroupsUi, SignalUi, SlotKind, SlotUi, deletion_effects,
+    frame_names, node_names, preview,
 };
 use egui::{ComboBox, Context, DragValue, TextEdit, Ui};
 use ldf_engine::{EditOp, ModelSnapshot};
@@ -32,6 +32,10 @@ pub enum Dialog {
     Composition(CompositionUi),
     /// 동적 프레임(dynamic_frames) 편집.
     DynamicFrames(DynamicFramesUi),
+    /// 시그널 그룹(Signal_groups) 편집.
+    SignalGroups(SignalGroupsUi),
+    /// NCF 노드 가져오기.
+    NcfImport(NcfImportUi),
     /// 삭제 확인.
     Delete(DeleteUi),
 }
@@ -247,6 +251,14 @@ pub fn show(ctx: &Context, snap: &ModelSnapshot, st: &mut EditState) -> Outcome 
             Dialog::DynamicFrames(d) => (
                 dynamic_frames(ctx, model, d, st, &mut outcome),
                 SelKey::Cluster,
+            ),
+            Dialog::SignalGroups(d) => (
+                signal_groups(ctx, model, d, st, &mut outcome),
+                SelKey::Cluster,
+            ),
+            Dialog::NcfImport(d) => (
+                ncf_import(ctx, model, d, st, &mut outcome),
+                SelKey::Node(d.node.clone()),
             ),
             Dialog::Delete(d) => (delete(ctx, d, &mut outcome), SelKey::Cluster),
         };
@@ -880,6 +892,115 @@ fn dynamic_frames(
             ui,
             "OK",
             problems.is_empty() && pv.is_some_and(|p| p.error.is_none()),
+            &problems,
+            pv.and_then(|p| p.error.as_deref()),
+            pv.map_or(&[][..], |p| p.new_findings.as_slice()),
+        )
+    });
+    if matches!(done, Done::Ok)
+        && let Ok(op) = op
+    {
+        *out = Outcome::Apply {
+            op: Box::new(op),
+            select: None,
+        };
+    }
+    done
+}
+
+// ---- 시그널 그룹 --------------------------------------------------------------------------------
+
+fn signal_groups(
+    ctx: &Context,
+    model: &LdfModel,
+    d: &mut SignalGroupsUi,
+    st: &mut EditState,
+    out: &mut Outcome,
+) -> Done {
+    let key = format!("{d:?}");
+    let c = analyze(&mut st.cache, key, model, || d.to_op());
+    let (op, pv) = (c.op.clone(), c.preview.as_ref());
+
+    let done = window(ctx, t("시그널 그룹"), |ui| {
+        ui.label(t(
+            "그룹마다 `그룹: 크기(비트)` 줄을 쓰고 그 아래에 `시그널, 시작 비트` 줄을 쓴다. 비우면 시그널 그룹을 지운다.",
+        ));
+        ui.add(
+            TextEdit::multiline(&mut d.text)
+                .font(egui::TextStyle::Monospace)
+                .desired_rows(10)
+                .desired_width(f32::INFINITY),
+        );
+        let problems: Vec<String> = op
+            .as_ref()
+            .err()
+            .map(|e| tr(e).into_owned())
+            .into_iter()
+            .collect();
+        footer(
+            ui,
+            "OK",
+            problems.is_empty() && pv.is_some_and(|p| p.error.is_none()),
+            &problems,
+            pv.and_then(|p| p.error.as_deref()),
+            pv.map_or(&[][..], |p| p.new_findings.as_slice()),
+        )
+    });
+    if matches!(done, Done::Ok)
+        && let Ok(op) = op
+    {
+        *out = Outcome::Apply {
+            op: Box::new(op),
+            select: None,
+        };
+    }
+    done
+}
+
+// ---- NCF 가져오기 -------------------------------------------------------------------------------
+
+fn ncf_import(
+    ctx: &Context,
+    model: &LdfModel,
+    d: &mut NcfImportUi,
+    st: &mut EditState,
+    out: &mut Outcome,
+) -> Done {
+    let key = format!("ncf-import:{}", d.node);
+    let c = analyze(&mut st.cache, key, model, || d.to_op());
+    let (op, pv) = (c.op.clone(), c.preview.as_ref());
+
+    let done = window(ctx, t("NCF 노드 가져오기"), |ui| {
+        ui.label(tf!(
+            "NCF 노드 `{}`을(를) 열린 LDF의 슬레이브로 가져온다.",
+            d.node
+        ));
+        let mut problems: Vec<String> = Vec::new();
+        match &d.plan {
+            Ok(p) => {
+                ui.label(tf!(
+                    "새로 생기는 것: 프레임 {}개, 시그널 {}개, 인코딩 {}개",
+                    p.frames,
+                    p.signals,
+                    p.encodings
+                ));
+                if !p.notes.is_empty() {
+                    ui.add_space(4.0);
+                    ui.strong(t("가정한 것과 옮기지 않은 것"));
+                    for n in &p.notes {
+                        ui.weak(format!("• {}", tr(n)));
+                    }
+                }
+            }
+            Err(errs) => {
+                ui.strong(t("가져올 수 없는 이유"));
+                problems.extend(errs.iter().map(|e| tr(e).into_owned()));
+            }
+        }
+        footer(
+            ui,
+            "OK",
+            d.plan.is_ok() && pv.is_some_and(|p| p.error.is_none()),
             &problems,
             pv.and_then(|p| p.error.as_deref()),
             pv.map_or(&[][..], |p| p.new_findings.as_slice()),

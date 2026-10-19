@@ -10,7 +10,8 @@ use crate::arena::ArenaId;
 use crate::{
     Composition, ConfigurableFrame, DynamicFrames, EncodingEntry, EncodingId, EncodingType, Frame,
     FrameId, FrameKind, FrameSignal, InitValue, LdfModel, Node, NodeAttrs, NodeId, NodeRole,
-    ProductId, Ref, ScheduleId, ScheduleTable, Signal, SignalId, SignalKind, Slot, SlotEntry,
+    ProductId, Ref, ScheduleId, ScheduleTable, Signal, SignalGroups, SignalId, SignalKind, Slot,
+    SlotEntry,
 };
 use std::fmt;
 
@@ -175,6 +176,8 @@ pub enum EditOp {
     SetComposition(Option<Composition>),
     /// 동적 프레임(`dynamic_frames`)을 통째로 바꾼다. `None`이면 지운다.
     SetDynamicFrames(Option<DynamicFrames>),
+    /// 시그널 그룹(`Signal_groups`)을 통째로 바꾼다. `None`이면 지운다.
+    SetSignalGroups(Option<SignalGroups>),
     /// 마스터의 타임베이스·지터(ms).
     SetMasterTiming {
         /// 마스터 이름.
@@ -764,6 +767,78 @@ fn sync_dynamic_frames_order(m: &mut LdfModel) {
     );
 }
 
+/// 시그널 그룹 섹션 이름을 정리한다. 새로 생기면 `Signal_encoding_types` 바로 앞에 둔다.
+fn sync_signal_groups_order(m: &mut LdfModel) {
+    let own = m.signal_groups.is_some().then_some("Signal_groups");
+    sync_section_order(m, &["Signal_groups"], own, |order| {
+        order.iter().position(|n| n == "Signal_encoding_types")
+    });
+}
+
+/// 시그널 이름이 바뀌면 시그널 그룹 안의 이름도 따라간다.
+fn rename_in_signal_groups(m: &mut LdfModel, from: &str, to: &str) {
+    if from == to {
+        return;
+    }
+    let Some(g) = &mut m.signal_groups else {
+        return;
+    };
+    for s in g.groups.iter_mut().flat_map(|g| &mut g.signals) {
+        if s.signal == from {
+            s.signal = to.to_owned();
+        }
+    }
+}
+
+/// 시그널이 지워지면 시그널 그룹에서도 뺀다(그룹은 남는다).
+fn drop_group_signal(m: &mut LdfModel, name: &str) {
+    let Some(g) = &mut m.signal_groups else {
+        return;
+    };
+    for group in &mut g.groups {
+        group.signals.retain(|s| s.signal != name);
+    }
+}
+
+/// 시그널 그룹을 검사해 모델에 넣는다. 이름은 식별자이고 그룹 이름은 겹치지 않으며, 그룹 하나에 같은 시그널을 두 번 넣을 수 없다.
+/// 시그널이 실제로 있는지와 크기에 들어가는지는 검사 규칙(0110)이 알려 준다.
+fn set_signal_groups(m: &mut LdfModel, g: Option<&SignalGroups>) -> Result {
+    let Some(g) = g else {
+        m.signal_groups = None;
+        sync_signal_groups_order(m);
+        return Ok(());
+    };
+    let mut names = std::collections::BTreeSet::new();
+    for group in &g.groups {
+        check_name(&group.name)?;
+        if !names.insert(group.name.as_str()) {
+            return invalid(format!("시그널 그룹 `{}`이(가) 두 번 나온다", group.name));
+        }
+        if group.size_bits == 0 {
+            return invalid(format!(
+                "시그널 그룹 `{}`의 크기는 1비트 이상이어야 한다",
+                group.name
+            ));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for s in &group.signals {
+            check_name(&s.signal)?;
+            if !seen.insert(s.signal.as_str()) {
+                return invalid(format!(
+                    "시그널 그룹 `{}`에서 시그널 `{}`이(가) 두 번 나온다",
+                    group.name, s.signal
+                ));
+            }
+        }
+    }
+    m.signal_groups = Some(SignalGroups {
+        span: None,
+        ..g.clone()
+    });
+    sync_signal_groups_order(m);
+    Ok(())
+}
+
 /// 동적 프레임을 검사해 모델에 넣는다. ID는 LIN 프레임 ID 범위(0–0x3F)이고 겹치지 않아야 한다.
 fn set_dynamic_frames(m: &mut LdfModel, d: Option<&DynamicFrames>) -> Result {
     let Some(d) = d else {
@@ -1046,6 +1121,7 @@ impl EditOp {
             EditOp::SetChannelName(_) => "set_channel_name",
             EditOp::SetComposition(_) => "set_composition",
             EditOp::SetDynamicFrames(_) => "set_dynamic_frames",
+            EditOp::SetSignalGroups(_) => "set_signal_groups",
             EditOp::SetMasterTiming { .. } => "set_master_timing",
             EditOp::AddSlave(_) => "add_slave",
             EditOp::RenameNode { .. } => "rename_node",
@@ -1092,6 +1168,7 @@ impl EditOp {
             EditOp::SetChannelName(name) => m.header.channel_name = name.clone(),
             EditOp::SetComposition(c) => set_composition(m, c.as_ref())?,
             EditOp::SetDynamicFrames(d) => set_dynamic_frames(m, d.as_ref())?,
+            EditOp::SetSignalGroups(g) => set_signal_groups(m, g.as_ref())?,
             EditOp::SetMasterTiming {
                 node,
                 timebase_ms,
@@ -1128,7 +1205,16 @@ impl EditOp {
             }
             EditOp::DeleteNode(name) => {
                 let id = node_by_name(m, name)?;
+                // 노드가 발행하던 시그널이 함께 지워지므로 시그널 그룹에서도 뺀다
+                let before: Vec<String> = m.signals.iter().map(|(_, s)| s.name.clone()).collect();
                 remove_node(m, id);
+                let gone: Vec<&String> = before
+                    .iter()
+                    .filter(|n| m.find_signal(n).is_none())
+                    .collect();
+                for name in gone {
+                    drop_group_signal(m, name);
+                }
             }
             EditOp::AddSignal(d) => {
                 check_free(m, "시그널", &d.name, None)?;
@@ -1138,10 +1224,12 @@ impl EditOp {
                 let id = signal_by_name(m, name)?;
                 check_free(m, "시그널", &draft.name, Some(name))?;
                 apply_signal_draft(m, Some(id), draft)?;
+                rename_in_signal_groups(m, name, &draft.name);
             }
             EditOp::DeleteSignal(name) => {
                 let id = signal_by_name(m, name)?;
                 remove_signal(m, id);
+                drop_group_signal(m, name);
             }
             EditOp::AddFrame(d) => {
                 check_free(m, "프레임", &d.name, None)?;

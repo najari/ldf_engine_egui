@@ -28,6 +28,8 @@ pub enum ObjectKind {
     Composition,
     /// 동적 프레임 ID 목록.
     DynamicFrames,
+    /// 시그널 그룹(그룹 하나).
+    SignalGroup,
 }
 
 impl ObjectKind {
@@ -43,6 +45,7 @@ impl ObjectKind {
             ObjectKind::NodeAttributes => "Node attributes",
             ObjectKind::Composition => "Composition",
             ObjectKind::DynamicFrames => "Dynamic frames",
+            ObjectKind::SignalGroup => "Signal group",
         }
     }
 }
@@ -459,6 +462,29 @@ fn dynamic_frames_items(m: &LdfModel) -> Vec<Item> {
         .collect()
 }
 
+/// 시그널 그룹: 그룹 하나가 객체 하나이고 크기와 든 시그널(`이름@오프셋`)이 필드다.
+fn signal_group_items(m: &LdfModel) -> Vec<Item> {
+    m.signal_groups
+        .iter()
+        .flat_map(|g| &g.groups)
+        .map(|g| Item {
+            name: g.name.clone(),
+            fields: vec![
+                f("size_bits", g.size_bits.to_string()),
+                f(
+                    "signals",
+                    join(
+                        g.signals
+                            .iter()
+                            .map(|s| format!("{}@{}", s.signal, s.offset)),
+                    ),
+                ),
+            ],
+            key: None,
+        })
+        .collect()
+}
+
 fn schedule_items(m: &LdfModel) -> Vec<Item> {
     let node = |r: &Ref<crate::NodeId>| rname(r, |id| m.nodes.get(id).map(|n| n.name.clone()));
     let frame = |r: &Ref<crate::FrameId>| rname(r, |id| m.frames.get(id).map(|n| n.name.clone()));
@@ -609,6 +635,12 @@ pub fn diff(a: &LdfModel, b: &LdfModel) -> Diff {
         ObjectKind::DynamicFrames,
         &dynamic_frames_items(a),
         &dynamic_frames_items(b),
+        &mut entries,
+    );
+    compare(
+        ObjectKind::SignalGroup,
+        &signal_group_items(a),
+        &signal_group_items(b),
         &mut entries,
     );
     Diff { entries }

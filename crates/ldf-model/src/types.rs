@@ -440,6 +440,35 @@ pub struct DynamicFrames {
     pub span: Option<Span>,
 }
 
+/// 시그널 그룹에 든 시그널 하나: 시그널 이름과 그룹 안의 시작 비트.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupSignal {
+    /// 시그널 이름(`Signals`에 있어야 한다).
+    pub signal: String,
+    /// 그룹 안의 시작 비트(`group_offset`).
+    pub offset: u32,
+}
+
+/// 시그널 그룹: 시그널 여럿을 묶어 한 덩어리로 다룬다(LIN 1.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignalGroup {
+    /// 그룹 이름.
+    pub name: String,
+    /// 그룹 크기(bit).
+    pub size_bits: u32,
+    /// 든 시그널들.
+    pub signals: Vec<GroupSignal>,
+}
+
+/// `Signal_groups` 섹션(`그룹: 크기 { 시그널, 오프셋; … }`). LIN 1.3의 문법이고 2.x에서는 쓰지 않는다.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignalGroups {
+    /// 그룹들. 비어 있어도 섹션은 있다(`Signal_groups { }`).
+    pub groups: Vec<SignalGroup>,
+    /// 원문 위치. 편집으로 생겼으면 `None`.
+    pub span: Option<Span>,
+}
+
 /// 모델이 해석하지 않는 섹션(왕복 보존용).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawSection {
@@ -497,6 +526,9 @@ pub struct LdfModel {
     /// 동적 프레임(`dynamic_frames`). ID 목록이 아닌 섹션은 `unknown_sections`에 원문으로 남는다.
     #[serde(default)]
     pub dynamic_frames: Option<DynamicFrames>,
+    /// 시그널 그룹(`Signal_groups`). 모양이 맞지 않는 섹션은 `unknown_sections`에 원문으로 남는다.
+    #[serde(default)]
+    pub signal_groups: Option<SignalGroups>,
     /// 해석하지 않은 섹션.
     pub unknown_sections: Vec<RawSection>,
     /// 원문의 최상위 문장 순서(왕복 출력용).

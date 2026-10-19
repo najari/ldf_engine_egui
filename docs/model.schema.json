@@ -73,6 +73,37 @@
         }
       ]
     },
+    "signal_groups": {
+      "description": "시그널 그룹(Signal_groups, LIN 1.3). 없으면 null. 시그널은 이름으로 가리킨다.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["groups"],
+          "properties": {
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "size_bits", "signals"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "size_bits": { "type": "integer", "minimum": 1 },
+                  "signals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["signal", "offset"],
+                      "properties": { "signal": { "type": "string" }, "offset": { "type": "integer", "minimum": 0 } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "unknown_sections": {
       "type": "array",
       "items": {

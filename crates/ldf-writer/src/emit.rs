@@ -2,7 +2,8 @@
 
 use ldf_model::{
     Composition, DynamicFrames, EncodingEntry, EncodingId, FrameId, FrameKind, FrameSignal,
-    InitValue, LdfModel, NodeId, NodeRole, Ref, ScheduleId, SignalId, SignalKind, SlotEntry,
+    InitValue, LdfModel, NodeId, NodeRole, Ref, ScheduleId, SignalGroups, SignalId, SignalKind,
+    SlotEntry,
 };
 
 fn name_of<'a, T: Copy>(r: &'a Ref<T>, lookup: impl Fn(T) -> Option<&'a str>) -> &'a str {
@@ -395,6 +396,20 @@ pub(crate) fn composition(c: &Composition) -> String {
     }
     s.push_str("}\n");
     s.trim_end().to_owned()
+}
+
+/// 시그널 그룹 섹션. 끝에 줄바꿈은 붙이지 않는다.
+pub(crate) fn signal_groups(g: &SignalGroups) -> String {
+    let mut s = String::from("Signal_groups {\n");
+    for group in &g.groups {
+        s.push_str(&format!("  {}: {} {{\n", group.name, group.size_bits));
+        for m in &group.signals {
+            s.push_str(&format!("    {}, {};\n", m.signal, m.offset));
+        }
+        s.push_str("  }\n");
+    }
+    s.push('}');
+    s
 }
 
 /// 동적 프레임 섹션. 끝에 줄바꿈은 붙이지 않는다.

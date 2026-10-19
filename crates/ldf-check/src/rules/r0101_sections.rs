@@ -68,8 +68,9 @@ impl Rule for R0101 {
             .dynamic_frames
             .iter()
             .map(|d| (d.keyword.as_str(), d.span));
+        let groups = m.signal_groups.iter().map(|g| ("Signal_groups", g.span));
         let raw = m.unknown_sections.iter().map(|s| (s.name.as_str(), s.span));
-        for (name, span) in composition.chain(dynamic).chain(raw) {
+        for (name, span) in composition.chain(dynamic).chain(groups).chain(raw) {
             if !section_allowed(name, p) {
                 bad(&format!("`{name}` 섹션"), span);
             }

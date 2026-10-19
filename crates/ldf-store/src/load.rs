@@ -112,7 +112,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
             "SELECT id, project_id, parent_id, label, source_name, created_at, protocol_ver, \
              language_ver, speed_bps, encoding, has_marker, ldf_file_revision, big_endian, \
              channel, source_text, section_order, lower_notes, leading_comment, composition_json, \
-             dynamic_frames_json FROM ldf_revision WHERE id = ?1",
+             dynamic_frames_json, signal_groups_json FROM ldf_revision WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
@@ -127,6 +127,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
                     r.get::<_, String>(17)?,
                     r.get::<_, Option<String>>(18)?,
                     r.get::<_, Option<String>>(19)?,
+                    r.get::<_, Option<String>>(20)?,
                 ))
             },
         )
@@ -143,6 +144,7 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         leading_comment,
         composition,
         dynamic_frames,
+        signal_groups,
     )) = head
     else {
         return Err(StoreError::NotFound(format!("리비전 {id}")));
@@ -165,6 +167,10 @@ pub(crate) fn load(conn: &Connection, id: i64) -> Result<StoredRevision> {
         .map(serde_json::from_str)
         .transpose()?;
     model.dynamic_frames = dynamic_frames
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
+    model.signal_groups = signal_groups
         .as_deref()
         .map(serde_json::from_str)
         .transpose()?;

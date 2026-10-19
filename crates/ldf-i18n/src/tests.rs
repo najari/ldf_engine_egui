@@ -340,6 +340,7 @@ fn every_library_message_is_translated() {
             "crates/ldf-syntax/src/lexer.rs",
             "crates/ldf-syntax/src/parser.rs",
             "crates/ldf-ncf/src/parse.rs",
+            "crates/ldf-engine/src/ncf_import.rs",
             "crates/ldf-writer/src/lib.rs",
             "crates/ldf-store/src/error.rs",
             "crates/ldf-store/src/lib.rs",
