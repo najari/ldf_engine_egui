@@ -12,6 +12,7 @@ serde.workspace = true
 [dev-dependencies]
 ldf-model.workspace = true
 ldf-check.workspace = true
+ldf-ncf.workspace = true
 
 [lints]
 workspace = true

@@ -304,6 +304,61 @@ fn dynamic_frames(src: &str, keyword: &str, stmt: &Stmt, block: &Block) -> Optio
     })
 }
 
+/// 인코딩 항목을 읽지 못한 이유.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryError {
+    /// `logical_value`의 모양이 틀렸다.
+    Logical,
+    /// `physical_value`의 모양이 틀렸다.
+    Physical,
+    /// 알 수 없는 항목이다.
+    Unknown,
+}
+
+/// 인코딩 타입 안의 문장 하나(`logical_value, 0, "off";` 등)를 읽는다. `Signal_encoding_types`와 NCF의 `encoding`이 같이 쓴다.
+pub fn parse_encoding_entry(src: &str, stmt: &Stmt) -> Result<EncodingEntry, EntryError> {
+    let g = split_commas(&stmt.elems);
+    let kind = g.first().and_then(|g| ident(src, g));
+    let num = |i: usize| g.get(i).and_then(|g| number(src, g));
+    match kind {
+        Some("logical_value") => {
+            let value = g.get(1).and_then(|g| match g {
+                [Elem::Token(t)] if t.kind == TokenKind::Number => parse_u64(t.span.text(src)),
+                _ => None,
+            });
+            // 설명은 생략할 수 있다(`logical_value, 값 (, 설명);`, LIN 2.2A §9.2.6.1). 따옴표 없는 글자 같은 다른 모양은 오류다
+            let text = match g.get(2) {
+                None => Some(String::new()),
+                Some(g) => string_lit(src, g),
+            };
+            match (value, text) {
+                (Some(value), Some(text)) => Ok(EncodingEntry::Logical { value, text }),
+                _ => Err(EntryError::Logical),
+            }
+        }
+        Some("physical_value") => {
+            let (Some(min), Some(max), Some(scale), Some(offset)) =
+                (num(1), num(2), num(3), num(4))
+            else {
+                return Err(EntryError::Physical);
+            };
+            Ok(EncodingEntry::Physical {
+                min: min as i64,
+                max: max as i64,
+                scale,
+                offset,
+                unit: g
+                    .get(5)
+                    .and_then(|g| string_lit(src, g))
+                    .unwrap_or_default(),
+            })
+        }
+        Some("bcd_value") => Ok(EncodingEntry::Bcd),
+        Some("ascii_value") => Ok(EncodingEntry::Ascii),
+        _ => Err(EntryError::Unknown),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // 문장·그룹 도우미
 // ---------------------------------------------------------------------------------------------
@@ -1143,55 +1198,23 @@ impl<'s> Lowerer<'s> {
     }
 
     fn encoding_entry(&mut self, stmt: &Stmt) -> Option<EncodingEntry> {
-        let src = self.src;
-        let g = split_commas(&stmt.elems);
-        let kind = g.first().and_then(|g| ident(src, g));
-        let num = |i: usize| g.get(i).and_then(|g| number(src, g));
-        match kind {
-            Some("logical_value") => {
-                let value = g.get(1).and_then(|g| match g {
-                    [Elem::Token(t)] if t.kind == TokenKind::Number => parse_u64(t.span.text(src)),
-                    _ => None,
-                });
-                // 설명은 생략할 수 있다(`logical_value, 값 (, 설명);`, LIN 2.2A §9.2.6.1). 따옴표 없는 글자 같은 다른 모양은 오류다
-                let text = match g.get(2) {
-                    None => Some(String::new()),
-                    Some(g) => string_lit(src, g),
-                };
-                if let (Some(value), Some(text)) = (value, text) {
-                    Some(EncodingEntry::Logical { value, text })
-                } else {
-                    self.bad(
-                        stmt.span,
-                        "logical_value: `logical_value, 값, \"설명\"` 형식이어야 한다",
-                    );
-                    None
-                }
+        match parse_encoding_entry(self.src, stmt) {
+            Ok(e) => Some(e),
+            Err(EntryError::Logical) => {
+                self.bad(
+                    stmt.span,
+                    "logical_value: `logical_value, 값, \"설명\"` 형식이어야 한다",
+                );
+                None
             }
-            Some("physical_value") => {
-                let (Some(min), Some(max), Some(scale), Some(offset)) =
-                    (num(1), num(2), num(3), num(4))
-                else {
-                    self.bad(
-                        stmt.span,
-                        "physical_value: `physical_value, min, max, scale, offset, \"단위\"` 형식이어야 한다",
-                    );
-                    return None;
-                };
-                Some(EncodingEntry::Physical {
-                    min: min as i64,
-                    max: max as i64,
-                    scale,
-                    offset,
-                    unit: g
-                        .get(5)
-                        .and_then(|g| string_lit(src, g))
-                        .unwrap_or_default(),
-                })
+            Err(EntryError::Physical) => {
+                self.bad(
+                    stmt.span,
+                    "physical_value: `physical_value, min, max, scale, offset, \"단위\"` 형식이어야 한다",
+                );
+                None
             }
-            Some("bcd_value") => Some(EncodingEntry::Bcd),
-            Some("ascii_value") => Some(EncodingEntry::Ascii),
-            _ => {
+            Err(EntryError::Unknown) => {
                 self.bad(stmt.span, "Signal_encoding_types: 알 수 없는 항목");
                 None
             }

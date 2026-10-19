@@ -1,0 +1,15 @@
+[package]
+name = "ldf-ncf"
+description = "LIN 노드 기능 파일(NCF, LIN 2.2A 8장) 읽기"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ldf-syntax.workspace = true
+ldf-model.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

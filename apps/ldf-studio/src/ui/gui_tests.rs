@@ -6,6 +6,7 @@
 use super::checker::{self, CheckerAction, CheckerState};
 use super::edit::{DeleteUi, Dialog, EditState, Outcome, show};
 use super::export::{self, Blocked, ExportAction, ExportState};
+use super::ncf::{self, NcfState};
 use super::revisions::{self, DiffShown, RevAction, RevState};
 use super::{UiState, status};
 use crate::view::edit::{CompositionUi, DynamicFramesUi, FrameUi};
@@ -13,7 +14,9 @@ use crate::view::{NavTab, SelKey, Selection};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use ldf_engine::{EditOp, Eol, ExportFormat, ExportOptions, ModelSnapshot, Session, Target};
+use ldf_engine::{
+    EditOp, Eol, ExportFormat, ExportOptions, ModelSnapshot, Session, Target, read_ncf,
+};
 use ldf_model::LdfModel;
 use std::sync::Arc;
 
@@ -1131,10 +1134,15 @@ fn a_signal_context_lists_the_frames_that_carry_it() {
 /// 글자 도형마다 (1) 줄임표로 줄었는지(`Galley::elided`), (2) 글자 영역이 그 도형의 자르기 영역 밖으로 나가는지를 본다.
 /// 렌더러 없이 레이아웃만으로 알 수 있어 GPU가 없는 CI에서도 돈다.
 fn clipped_texts(output: &egui::FullOutput) -> Vec<String> {
-    fn walk(shape: &egui::epaint::Shape, clip: egui::Rect, out: &mut Vec<String>) {
+    clipped_texts_in(output, true)
+}
+
+/// `clipped_texts`와 같지만 `vertical`이 거짓이면 위아래로 잘린 것은 치지 않는다(세로로 스크롤되는 창은 내용이 가장자리에서 잘려도 정상이다).
+fn clipped_texts_in(output: &egui::FullOutput, vertical: bool) -> Vec<String> {
+    fn walk(shape: &egui::epaint::Shape, clip: egui::Rect, vertical: bool, out: &mut Vec<String>) {
         use egui::epaint::Shape;
         match shape {
-            Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+            Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, vertical, out)),
             Shape::Text(t) => {
                 let text = t.galley.text().to_owned();
                 if text.trim().is_empty() {
@@ -1143,9 +1151,9 @@ fn clipped_texts(output: &egui::FullOutput) -> Vec<String> {
                 let bounds = t.visual_bounding_rect();
                 let eps = 1.5; // 글자 모서리의 반 픽셀 번짐은 잘린 것으로 치지 않는다
                 let cut = bounds.min.x < clip.min.x - eps
-                    || bounds.min.y < clip.min.y - eps
                     || bounds.max.x > clip.max.x + eps
-                    || bounds.max.y > clip.max.y + eps;
+                    || (vertical
+                        && (bounds.min.y < clip.min.y - eps || bounds.max.y > clip.max.y + eps));
                 if t.galley.elided || cut {
                     out.push(format!(
                         "{text:?} (elided={}, 글자 {bounds:?}, 영역 {clip:?})",
@@ -1158,7 +1166,7 @@ fn clipped_texts(output: &egui::FullOutput) -> Vec<String> {
     }
     let mut out = Vec::new();
     for cs in &output.shapes {
-        walk(&cs.shape, cs.clip_rect, &mut out);
+        walk(&cs.shape, cs.clip_rect, vertical, &mut out);
     }
     out
 }
@@ -1410,4 +1418,107 @@ fn icon_buttons_keep_their_text_label_and_enabled_state() {
     drop(h);
     assert_eq!(clicked, 1);
     assert_eq!(disabled_clicked, 0, "꺼진 버튼은 눌리지 않는다");
+}
+
+// ---- NCF 창 -------------------------------------------------------------------------------------
+
+const NCF_SAMPLE: &str = "node_capability_file;\nLIN_language_version = \"2.1\";\n\
+node Motor {\n\
+ general { LIN_protocol_version = \"2.1\"; supplier = 0x1e; function = 1; variant = 0; bitrate = 19.2 kbps; response_tolerance = 40 %; }\n\
+ diagnostic { NAD = 5; P2_min = 50 ms; }\n\
+ frames {\n\
+  publish State { length = 2; message_ID = 0x10; event_triggered_frame = Ev; signals { Temp { init_value = 0; size = 8; offset = 0; enc; } Fault { init_value = 0; size = 1; offset = 8; } } }\n\
+  publish Ev { length = 2; }\n\
+  subscribe Cmd { length = 1; signals { Speed { init_value = {1, 2}; size = 8; offset = 0; } } }\n\
+ }\n\
+ encoding { enc { physical_value, 0, 200, 0.5, -20, \"Degree\"; } }\n\
+ status_management { response_error = Missing; }\n\
+}\n";
+
+fn ncf_harness(src: &str) -> Harness<'static, NcfState> {
+    let mut st = NcfState::default();
+    st.show_file("C:/x/motor.ncf".into(), read_ncf(src.as_bytes()));
+    Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, s: &mut NcfState| ncf::show(ui.ctx(), s), st)
+}
+
+#[test]
+fn ncf_window_shows_the_node_general_info_and_diagnostic_abilities() {
+    let mut h = ncf_harness(NCF_SAMPLE);
+    h.run();
+    h.get_by_label("NCF — motor.ncf");
+    h.get_by_label("Motor");
+    h.get_by_label("공급자 ID");
+    h.get_by_label("0x001E");
+    h.get_by_label("19.2 kbps");
+    // 해석하지 않은 항목은 파일의 키 그대로 보인다
+    h.get_by_label("response_tolerance");
+    h.get_by_label("40 %");
+    h.get_by_label("NAD");
+    h.get_by_label("0x05");
+    h.get_by_label("50 ms");
+    h.get_by_label("response_error");
+}
+
+#[test]
+fn ncf_window_lists_frames_and_opens_the_signals_of_the_clicked_one() {
+    let mut h = ncf_harness(NCF_SAMPLE);
+    h.run();
+    h.get_by_label_contains("프레임 (3)");
+    h.get_by_label("0x0010");
+    // 시그널은 프레임을 누르기 전에는 보이지 않는다
+    assert!(h.query_by_label("Temp").is_none());
+    h.get_by_label("State").click();
+    h.run();
+    h.get_by_label("시그널 — State");
+    h.get_by_label("Temp");
+    h.get_by_label("Fault");
+    // 다른 프레임을 누르면 그 프레임의 시그널로 바뀐다
+    h.get_by_label("Cmd").click();
+    h.run();
+    h.get_by_label("시그널 — Cmd");
+    h.get_by_label("{1, 2}");
+    assert!(h.query_by_label("Temp").is_none());
+}
+
+#[test]
+fn ncf_window_reports_a_file_without_nodes_and_its_read_diagnostics() {
+    let mut h = ncf_harness("LIN_description_file;\n");
+    h.run();
+    h.get_by_label("이 파일에서 노드를 찾지 못했다");
+    h.get_by_label_contains("읽기 진단");
+    h.get_by_label_contains("[9201]");
+}
+
+#[test]
+fn a_closed_ncf_window_draws_nothing() {
+    let mut h = ncf_harness(NCF_SAMPLE);
+    h.state_mut().open = false;
+    h.run();
+    assert!(h.query_by_label("Motor").is_none());
+}
+
+#[test]
+fn the_ncf_window_is_not_clipped_at_common_scales() {
+    let mut problems = Vec::new();
+    for ((w, h), ppp) in VIEWPORTS {
+        let mut st = NcfState::default();
+        st.show_file("C:/x/motor.ncf".into(), read_ncf(NCF_SAMPLE.as_bytes()));
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(w, h))
+            .with_pixels_per_point(ppp)
+            .build_ui_state(|ui, s: &mut NcfState| ncf::show(ui.ctx(), s), st);
+        harness.run();
+        // 프레임을 눌러 시그널 표까지 펼친 모습도 본다
+        harness.get_by_label("State").click();
+        harness.run();
+        // 이 창은 세로로 스크롤되므로 위아래 가장자리에서 잘리는 것은 정상이고, 옆으로 잘리거나 줄임표가 된 글자만 본다
+        problems.extend(
+            clipped_texts_in(harness.output(), false)
+                .into_iter()
+                .map(|t| format!("NCF {w}x{h} @{ppp}: {t}")),
+        );
+    }
+    assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
 }

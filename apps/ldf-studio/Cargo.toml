@@ -10,6 +10,7 @@ publish.workspace = true
 ldf-engine.workspace = true
 ldf-i18n.workspace = true
 ldf-model.workspace = true
+ldf-ncf.workspace = true
 ldf-check.workspace = true
 ldf-syntax.workspace = true
 eframe = { workspace = true, features = ["accesskit", "default_fonts", "glow", "persistence", "wgpu"] }

@@ -7,7 +7,7 @@ use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
 use crate::ui::icons::{self, Icon};
 use crate::ui::revisions::{DiffShown, RevAction};
-use crate::ui::{UiState, bits, context, nav, props, schedule, status};
+use crate::ui::{UiState, bits, context, nav, ncf, props, schedule, status};
 use crate::view::edit::{
     CompositionUi, DynamicFramesUi, EncodingUi, FrameUi, InlineScope, NodeUi, ScheduleUi, SignalUi,
 };
@@ -17,7 +17,7 @@ use egui::{Key, Modifiers, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
 use ldf_engine::{
     Command, EditOp, Engine, Event, ExportFormat, ExportOptions, ModelSnapshot, RevisionInfo,
-    RuleSettings,
+    RuleSettings, is_ncf_path, read_ncf,
 };
 use ldf_model::FrameId;
 use serde::{Deserialize, Serialize};
@@ -53,12 +53,15 @@ impl Default for Settings {
 #[derive(Clone, Copy)]
 enum Mode {
     Open,
+    Ncf,
     Project,
     Export,
 }
 
 enum Picked {
     Ldf(PathBuf),
+    /// 읽기 전용으로 볼 NCF 파일.
+    Ncf(PathBuf),
     Project(PathBuf),
     /// 내보낼 파일 경로(옵션은 xport_pending).
     Export(PathBuf),
@@ -198,9 +201,27 @@ impl StudioApp {
     }
 
     fn import(&mut self, path: PathBuf) {
+        // NCF는 LDF 세션과 따로 읽기 전용으로 연다
+        if is_ncf_path(&path) {
+            self.open_ncf(path);
+            return;
+        }
         self.remember_recent(&path);
         self.busy = true;
         self.send(Command::Import(path));
+    }
+
+    /// NCF(노드 기능 파일)를 읽어 창에 띄운다. 열려 있는 LDF와 편집 상태는 그대로다.
+    fn open_ncf(&mut self, path: PathBuf) {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                self.remember_recent(&path);
+                self.st.ncf.show_file(path, read_ncf(&bytes));
+            }
+            Err(e) => {
+                self.notice = Some(tf!("{}: 파일을 읽을 수 없다: {e}", path.display()));
+            }
+        }
     }
 
     fn dirty(&self) -> bool {
@@ -209,6 +230,13 @@ impl StudioApp {
 
     /// 변경이 있으면 확인을 받은 뒤, 없으면 바로 `act`를 한다.
     fn request(&mut self, act: Pending) {
+        // NCF를 여는 것은 LDF를 바꾸지 않으므로 저장 확인이 필요 없다
+        if let Pending::Import(p) = &act
+            && is_ncf_path(p)
+        {
+            self.open_ncf(p.clone());
+            return;
+        }
         if self.dirty() {
             self.unsaved = Some(act);
         } else {
@@ -445,10 +473,17 @@ impl StudioApp {
                     .map(Picked::Project),
                 Mode::Open => dialog
                     .add_filter("LIN Description File", &["ldf"])
+                    .add_filter("LIN Node Capability File", &["ncf"])
                     .add_filter(t("모든 파일"), &["*"])
                     .set_title(t("LDF 열기"))
                     .pick_file()
                     .map(Picked::Ldf),
+                Mode::Ncf => dialog
+                    .add_filter("LIN Node Capability File", &["ncf"])
+                    .add_filter(t("모든 파일"), &["*"])
+                    .set_title(t("NCF 보기"))
+                    .pick_file()
+                    .map(Picked::Ncf),
                 Mode::Export if json => dialog
                     .add_filter("JSON", &["json"])
                     .set_title(t("모델을 JSON으로 내보내기"))
@@ -472,6 +507,7 @@ impl StudioApp {
                 self.picker = None;
                 match picked {
                     Some(Picked::Ldf(p)) => self.request(Pending::Import(p)),
+                    Some(Picked::Ncf(p)) => self.open_ncf(p),
                     Some(Picked::Project(p)) => self.request(Pending::OpenProject(p)),
                     Some(Picked::Export(path)) => self.start_export(path),
                     None => self.export_pending = None,
@@ -694,6 +730,10 @@ impl StudioApp {
             ui.menu_button(t("파일"), |ui| {
                 if ui.button(t("LDF 열기…    Ctrl+O")).clicked() {
                     self.pick(&ctx, false);
+                    ui.close();
+                }
+                if ui.button(t("NCF 보기…")).clicked() {
+                    self.pick_with(&ctx, Mode::Ncf);
                     ui.close();
                 }
                 if ui.button(t("프로젝트 열기/만들기…")).clicked() {
@@ -1405,6 +1445,7 @@ impl eframe::App for StudioApp {
             self.welcome(ui);
         }
         self.revisions_window(&ctx);
+        ncf::show(&ctx, &mut self.st.ncf);
         if self.show_perf {
             let ms = started.elapsed().as_secs_f32() * 1000.0;
             self.perf = Some(self.perf.map_or(ms, |p| p * 0.9 + ms * 0.1));

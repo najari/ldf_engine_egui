@@ -21,7 +21,7 @@ pub use diff::{Change, Diff, DiffEntry, FieldChange, ObjectKind, diff};
 pub use edit::{AttrsDraft, EditError, EditOp, FrameDraft, FrameDraftKind, SignalDraft, SlotDraft};
 pub use json::{JSON_VERSION, to_json, to_json_string};
 pub use ldf_syntax::{Diagnostic, LineIndex, Severity, Span, codes};
-pub use lower::{Loaded, load, lower};
+pub use lower::{EntryError, Loaded, load, lower, parse_encoding_entry};
 pub use protocol::{
     classic_checksum, enhanced_checksum, frame_bits_nominal, frame_time_max_ms,
     frame_time_nominal_ms, pid_is_valid, protected_id,

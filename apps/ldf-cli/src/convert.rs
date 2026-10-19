@@ -219,6 +219,8 @@ Schedule_tables { T { F delay 10 ms; } }\n";
         let bad = d.join("bad.ldf");
         std::fs::write(&bad, "Nodes {").expect("write");
         let out = d.join("bad-out.ldf");
+        // 프로세스 번호가 다시 쓰여 지난 실행의 파일이 남아 있을 수 있다
+        let _ = std::fs::remove_file(&out);
         let (code, _, err) = go(&[bad.to_str().expect("p"), "-o", out.to_str().expect("p")]);
         assert_eq!(code, 2);
         assert!(err.contains("--allow-errors"), "{err}");

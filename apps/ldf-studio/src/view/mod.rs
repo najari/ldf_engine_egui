@@ -6,6 +6,7 @@ pub mod context;
 pub mod derive;
 pub mod edit;
 pub mod nav;
+pub mod ncf;
 pub mod props;
 pub mod revisions;
 

@@ -47,7 +47,7 @@ pub struct CheckerState {
     pub show_rules: bool,
 }
 
-fn severity_icon(s: Severity) -> Icon {
+pub(super) fn severity_icon(s: Severity) -> Icon {
     match s {
         Severity::Error => Icon::Error,
         Severity::Warning => Icon::Warning,
@@ -55,7 +55,7 @@ fn severity_icon(s: Severity) -> Icon {
     }
 }
 
-fn severity_color(ui: &Ui, s: Severity) -> egui::Color32 {
+pub(super) fn severity_color(ui: &Ui, s: Severity) -> egui::Color32 {
     match s {
         Severity::Error => ui.visuals().error_fg_color,
         Severity::Warning => ui.visuals().warn_fg_color,

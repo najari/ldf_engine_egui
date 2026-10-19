@@ -51,6 +51,7 @@ ldf-cli check   a.ldf b.ldf [--format text|json]                     # 진단. �
 ldf-cli diff    이전.ldf 이후.ldf [--format text|json|csv|html] [-o 파일]  # 종료 코드 0 차이 없음 / 1 차이 있음 / 3 실패
 ldf-cli convert 입력.ldf -o 출력.ldf --to 2.0 [--eol crlf] [--encoding windows-1252]   # 빠지는 항목은 stderr 경고
 ldf-cli convert 입력.ldf -o 모델.json --format json                  # 모델 JSON(docs/model.schema.json)
+ldf-cli ncf     모터.ncf [--format text|json]                        # 노드 기능 파일(NCF)을 읽어 보여 준다(읽기 전용). 종료 코드는 check와 같다
 ldf-cli import  프로젝트.ldfdb a.ldf b.ldf                           # 파일마다 리비전을 만든다
 ldf-cli list    프로젝트.ldfdb
 ldf-cli export  프로젝트.ldfdb [--revision N] -o 출력.ldf

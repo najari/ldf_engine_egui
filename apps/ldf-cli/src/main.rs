@@ -4,6 +4,7 @@ mod args;
 mod check;
 mod convert;
 mod diff;
+mod ncf;
 mod project;
 
 use ldf_i18n::{Lang, lang, set_lang, tf};
@@ -16,6 +17,7 @@ const USAGE: &str = "\
   ldf-cli diff <이전.ldf> <이후.ldf> [--format text|json|csv|html] [-o 파일]
   ldf-cli convert <입력.ldf> -o <출력> [--to keep|2.0|2.1|2.2] [--eol lf|crlf]
                   [--encoding utf-8|utf-8-bom|windows-1252] [--format ldf|json] [--allow-errors]
+  ldf-cli ncf <파일.ncf...> [--format text|json]
   ldf-cli list <프로젝트.ldfdb>
   ldf-cli import <프로젝트.ldfdb> <파일...>
   ldf-cli export <프로젝트.ldfdb> -o <출력> [--revision N] [--format ldf|json] [--allow-errors]
@@ -24,6 +26,7 @@ const USAGE: &str = "\
   check    LDF 파일을 검사하고 진단을 출력한다
   diff     두 LDF의 차이(추가·삭제·변경·이름 변경)를 낸다
   convert  다른 LIN 버전·줄바꿈·인코딩으로 다시 쓰고, 빠지는 항목은 stderr로 경고한다
+  ncf      노드 기능 파일(NCF)을 읽어 노드·프레임·인코딩을 보여 준다(읽기 전용)
   list/import/export  프로젝트 파일(리비전 저장소)을 스크립트로 다룬다
 
 종료 코드: 0 = 성공/문제 없음/차이 없음, 1 = 경고(check) 또는 차이 있음(diff), 2 = 오류 진단,
@@ -36,6 +39,7 @@ Usage:
   ldf-cli diff <before.ldf> <after.ldf> [--format text|json|csv|html] [-o file]
   ldf-cli convert <input.ldf> -o <output> [--to keep|2.0|2.1|2.2] [--eol lf|crlf]
                   [--encoding utf-8|utf-8-bom|windows-1252] [--format ldf|json] [--allow-errors]
+  ldf-cli ncf <file.ncf...> [--format text|json]
   ldf-cli list <project.ldfdb>
   ldf-cli import <project.ldfdb> <file...>
   ldf-cli export <project.ldfdb> -o <output> [--revision N] [--format ldf|json] [--allow-errors]
@@ -44,6 +48,7 @@ Usage:
   check    Check LDF files and print the diagnostics
   diff     Report the differences between two LDFs (added, removed, changed, renamed)
   convert  Rewrite for another LIN version, line ending or encoding; items that get dropped are warned on stderr
+  ncf      Read a Node Capability File (NCF) and show its node, frames and encodings (read-only)
   list/import/export  Work with a project file (the revision store) from scripts
 
 Exit codes: 0 = success / no problems / no differences, 1 = warnings (check) or differences (diff), 2 = error diagnostics,
@@ -101,6 +106,7 @@ fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         Some("check") => check::run(args.get(1..).unwrap_or(&[]), out, err),
         Some("diff") => diff::run(args.get(1..).unwrap_or(&[]), out, err),
         Some("convert") => convert::run(args.get(1..).unwrap_or(&[]), out, err),
+        Some("ncf") => ncf::run(args.get(1..).unwrap_or(&[]), out, err),
         Some("list") => project::list(args.get(1..).unwrap_or(&[]), out, err),
         Some("import") => project::import(args.get(1..).unwrap_or(&[]), out, err),
         Some("export") => project::export(args.get(1..).unwrap_or(&[]), out, err),

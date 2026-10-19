@@ -339,6 +339,7 @@ fn every_library_message_is_translated() {
             "crates/ldf-model/src/semantic.rs",
             "crates/ldf-syntax/src/lexer.rs",
             "crates/ldf-syntax/src/parser.rs",
+            "crates/ldf-ncf/src/parse.rs",
             "crates/ldf-writer/src/lib.rs",
             "crates/ldf-store/src/error.rs",
             "crates/ldf-store/src/lib.rs",
@@ -417,6 +418,41 @@ Unknown_section { }
     );
     let left = untranslated(&msgs);
     assert!(left.is_empty(), "번역되지 않은 진단:\n{}", left.join("\n"));
+}
+
+#[test]
+fn broken_ncf_diagnostics_are_translated() {
+    const BROKEN: &str = r#"
+LIN_description_file;
+stray = 1;
+node N {
+  general { bitrate = fast; supplier = x; extra_key = 1; }
+  diagnostic { NAD = ; P2_min = 5 parsecs; weird_item; }
+  frames { listen F { } publish { } publish G { length = x; signals { 1 { } S { init_value = {300}; vendor = 1; } } } }
+  encoding { E { logical_value, x; bogus; physical_value, 1; } 2 { } }
+  vendor { a = 1; }
+}
+"#;
+    let parsed = ldf_ncf::parse(BROKEN);
+    let msgs: Vec<String> = parsed
+        .diagnostics
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(
+        msgs.len() > 10,
+        "시료가 진단을 충분히 내야 한다: {}",
+        msgs.len()
+    );
+    let left = untranslated(&msgs);
+    assert!(left.is_empty(), "번역되지 않은 진단:\n{}", left.join("\n"));
+    let empty = ldf_ncf::parse("");
+    let msgs: Vec<String> = empty
+        .diagnostics
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(untranslated(&msgs).is_empty());
 }
 
 /// Vector 테스트 파일이 있으면(`LDF_VECTOR_TESTFILES`) 모든 파일의 진단이 번역되는지 본다.
