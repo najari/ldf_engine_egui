@@ -302,7 +302,13 @@ fn every_studio_phrase_is_translated() {
     let files = collect(
         &["apps/ldf-studio/src"],
         &[],
-        &["tests.rs", "main.rs", "logging.rs", "fonts.rs"],
+        &[
+            "tests.rs",
+            "gui_tests.rs",
+            "main.rs",
+            "logging.rs",
+            "fonts.rs",
+        ],
     );
     let missing = missing_in(&files);
     assert!(

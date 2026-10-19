@@ -12,6 +12,9 @@ pub mod revisions;
 pub mod schedule;
 pub mod status;
 
+#[cfg(test)]
+mod gui_tests;
+
 use crate::view::context::Table;
 use crate::view::nav::{NavKey, NavNode};
 use crate::view::{NavTab, Selection};
