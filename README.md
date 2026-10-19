@@ -8,7 +8,7 @@ Rust로 만들고, UI는 [egui](https://github.com/emilk/egui), 저장소는 SQL
 | 마일스톤 | 상태 |
 | --- | --- |
 | M1 읽기 전용 뷰어 (WP1–4) | 완료 — Vector Clean 10개 임포트·표시, 132개 파일 DB 왕복, UI 1.5 ms/프레임 |
-| M2 검사기 (WP5–7) | 완료 — 규칙 00xx–04xx 구현, Vector TestFiles 125/131(95.4%) 일치, Clean 10/10 진단 0건. 차이는 [docs/check-deviations.md](docs/check-deviations.md) |
+| M2 검사기 (WP5–7) | 완료 — 규칙 00xx–04xx 구현, Vector TestFiles 124/131(94.7%) 일치, Clean 10/10 진단 0건. 차이는 [docs/check-deviations.md](docs/check-deviations.md) |
 | M3 편집·내보내기 (WP8–11) | 완료 — 작성기(ldf-writer)·내보내기, 편집 연산 28종과 Undo/Redo, 편집 대화상자, 규칙 설정, JSON 내보내기, 속성 기반 시험 10,000회 통과. 퍼징은 골격만(아래 알려진 한계) |
 | M4 리비전·배포 (WP12–14) | 완료 — 리비전 트리·Diff·삭제, ldf-cli diff/convert/import/export, 휴대용 zip 패키징. 코드 서명은 인증서 대기 |
 

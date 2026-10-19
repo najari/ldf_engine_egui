@@ -10,7 +10,8 @@ use ldf_model::{Diagnostic, LdfModel, Severity};
 pub(crate) fn section_allowed(name: &str, p: Proto) -> bool {
     match name {
         "dynamic_frames" | "Dynamic_frames" => p == Proto::V2_0,
-        "Signal_groups" => p == Proto::V1_3,
+        // LIN 2.2A §9.2.3.3: LIN 1.3의 기능이고 2.x에서는 쓰지 않지만(deprecated) 문법으로는 허용되고 클러스터에 영향이 없다
+        "Signal_groups" => matches!(p, Proto::V1_3 | Proto::V2_0 | Proto::V2_1 | Proto::V2_2),
         "Diagnostic_addresses" => p == Proto::Iso,
         "Node_composition" => matches!(p, Proto::V2_1 | Proto::V2_2 | Proto::Iso),
         "composite" => matches!(p, Proto::V2_0 | Proto::V2_1 | Proto::V2_2),
@@ -123,7 +124,10 @@ mod tests {
         );
         assert_eq!(n("2.1", "dynamic_frames { 1 }"), 1);
         assert_eq!(n("2.0", "dynamic_frames { 1 }"), 0);
-        assert_eq!(n("2.0", "Signal_groups { }"), 1);
+        // 명세(§9.2.3.3)는 LIN 2.x의 Signal_groups를 허용한다(무시될 뿐이다). ISO 17987에는 없다
+        assert_eq!(n("2.0", "Signal_groups { }"), 0);
+        assert_eq!(n("2.2", "Signal_groups { }"), 0);
+        assert_eq!(n("ISO17987:2015", "Signal_groups { }"), 1);
         assert_eq!(n("2.2", "Diagnostic_addresses { }"), 1);
         assert_eq!(n("1.3", "Channel_name = A;\ndynamic_frames { 1 }"), 2);
     }
