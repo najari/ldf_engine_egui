@@ -1159,25 +1159,32 @@ impl StudioApp {
             });
         });
     }
+}
 
-    fn main_view(&mut self, ui: &mut Ui, snap: &Arc<ModelSnapshot>) {
-        let hex = self.settings.hex;
+/// 메인 화면(내비게이션, 스케줄 뷰, 컨텍스트 뷰, 속성 창 2개)을 그린다. 속성 창에서 값을 고쳤으면 보낼 연산과 편집 뒤 선택할 객체를 돌려준다.
+/// 앱 본체와 떨어진 함수라서 화면 시험이 상태(`UiState`)만 들고 그릴 수 있다.
+pub(crate) fn main_view(
+    ui: &mut Ui,
+    snap: &Arc<ModelSnapshot>,
+    st: &mut UiState,
+    hex: bool,
+) -> Option<(EditOp, Option<SelKey>)> {
+    egui::Panel::left("nav")
+        .default_size(290.0)
+        .size_range(200.0..=560.0)
+        .show(ui, |ui| {
+            nav::show(ui, snap, st, hex);
+        });
 
-        egui::Panel::left("nav")
-            .default_size(290.0)
-            .size_range(200.0..=560.0)
-            .show(ui, |ui| {
-                nav::show(ui, snap, &mut self.st, hex);
-            });
+    if let Selection::Schedule(s) | Selection::Slot(s, _) = &st.selection {
+        st.last_schedule = Some(*s);
+    }
 
-        if let Selection::Schedule(s) | Selection::Slot(s, _) = &self.st.selection {
-            self.st.last_schedule = Some(*s);
-        }
-
-        egui::CentralPanel::default().show(ui, |ui| {
+    egui::CentralPanel::default()
+        .show(ui, |ui| {
             // 속성 창 내용은 패널을 그리기 전에 계산해 두어, 표가 선택 상태를 바꿀 수 있게 한다
             let sched_props = {
-                let sel = match (&self.st.selection, self.st.last_schedule) {
+                let sel = match (&st.selection, st.last_schedule) {
                     (s @ (Selection::Schedule(_) | Selection::Slot(..)), _) => s.clone(),
                     (_, Some(last)) => Selection::Schedule(last),
                     _ => Selection::None,
@@ -1186,9 +1193,9 @@ impl StudioApp {
             };
             let height = ui.available_height();
             // 속성 창의 입력 상태는 본 뷰와 동시에 빌릴 수 없어 잠시 꺼내 쓴다
-            let mut inline = std::mem::take(&mut self.st.inline);
-            let selection = self.st.selection.clone();
-            let sched_selection = match (&selection, self.st.last_schedule) {
+            let mut inline = std::mem::take(&mut st.inline);
+            let selection = st.selection.clone();
+            let sched_selection = match (&selection, st.last_schedule) {
                 (s @ (Selection::Schedule(_) | Selection::Slot(..)), _) => s.clone(),
                 (_, Some(last)) => Selection::Schedule(last),
                 _ => Selection::None,
@@ -1202,7 +1209,7 @@ impl StudioApp {
                 .show(ui, |ui| {
                     split(
                         ui,
-                        |ui| schedule::show(ui, snap, &mut self.st),
+                        |ui| schedule::show(ui, snap, st),
                         |ui| match &sched_props {
                             Some(sec) => {
                                 let cx = props::EditCtx {
@@ -1226,15 +1233,15 @@ impl StudioApp {
                     );
                 });
 
-            let obj_props = view::props::object_props(&snap.model, &self.st.selection, hex);
-            let frame_for_bits: Option<FrameId> = match &self.st.selection {
+            let obj_props = view::props::object_props(&snap.model, &st.selection, hex);
+            let frame_for_bits: Option<FrameId> = match &st.selection {
                 Selection::Frame(f) => Some(*f),
                 Selection::Slot(s, i) => view::props::slot_frame(&snap.model, *s, *i),
                 _ => None,
             };
             split(
                 ui,
-                |ui| context::show(ui, snap, &mut self.st, hex),
+                |ui| context::show(ui, snap, st, hex),
                 |ui| {
                     match &obj_props {
                         Some(sec) => {
@@ -1255,14 +1262,14 @@ impl StudioApp {
                     }
                 },
             );
-            self.st.inline = inline;
-            if let Some(op) = inline_op {
-                // 이름을 바꾸면 선택이 그 이름을 따라가게 한다
-                self.select_after_edit = renamed_selection(&snap.model, &self.st.selection, &op);
-                self.edit(op);
-            }
-        });
-    }
+            st.inline = inline;
+            // 이름을 바꾸면 선택이 그 이름을 따라가게 한다
+            inline_op.map(|op| {
+                let select = renamed_selection(&snap.model, &st.selection, &op);
+                (op, select)
+            })
+        })
+        .inner
 }
 
 /// 속성 창에서 이름을 바꾸는 연산이면, 편집 뒤에도 선택이 바뀐 이름의 객체를 가리키게 하는 키.
@@ -1334,7 +1341,10 @@ impl eframe::App for StudioApp {
         if let Some(msg) = self.fatal.clone() {
             self.fatal_screen(ui, &msg);
         } else if let Some(snap) = snap {
-            self.main_view(ui, &snap);
+            if let Some((op, select)) = main_view(ui, &snap, &mut self.st, self.settings.hex) {
+                self.select_after_edit = select;
+                self.edit(op);
+            }
             if let Some(op) = self.st.pending_op.take() {
                 self.edit(op);
             }
