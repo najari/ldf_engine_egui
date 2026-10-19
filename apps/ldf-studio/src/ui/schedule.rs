@@ -1,6 +1,7 @@
 //! 스케줄 뷰: 테이블과 슬롯을 트리형 표로 보여준다.
 
 use super::UiState;
+use super::icons::{self, Icon};
 use crate::i18n::t;
 use crate::view::edit::{drop_frame_op, move_slot_op};
 use crate::view::{Selection, derive};
@@ -102,6 +103,7 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState) {
                                 if ui.small_button(if is_open { "-" } else { "+" }).clicked() {
                                     toggle = Some(line.sched);
                                 }
+                                icons::inline(ui, Icon::Schedule);
                                 ui.label(name);
                             });
                         });

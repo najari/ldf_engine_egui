@@ -1,5 +1,6 @@
 //! 상태 바: 왼쪽에 진단 요약, 오른쪽에 Master·Jitter·Timebase·Channel·속도·프로토콜.
 
+use super::icons::{self, Icon};
 use crate::i18n::t;
 use crate::view::derive;
 use egui::{Align, Layout, Ui};
@@ -80,9 +81,21 @@ fn diagnostics_summary(ui: &mut Ui, snap: &ModelSnapshot) -> bool {
         count(Severity::Info),
     );
     if errors + warnings + infos == 0 {
+        icons::inline(ui, Icon::Check);
         ui.label(t("문제 없음"));
         return false;
     }
+    // 가장 심한 심각도의 아이콘을 요약 앞에 둔다
+    icons::inline(
+        ui,
+        if errors > 0 {
+            Icon::Error
+        } else if warnings > 0 {
+            Icon::Warning
+        } else {
+            Icon::Info
+        },
+    );
     let color = if errors > 0 {
         ui.visuals().error_fg_color
     } else {

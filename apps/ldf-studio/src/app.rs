@@ -5,6 +5,7 @@ use crate::i18n::{self, Lang, t, tr};
 use crate::ui::checker::CheckerAction;
 use crate::ui::edit::{DeleteUi, Dialog, Outcome};
 use crate::ui::export::{Blocked, ExportAction};
+use crate::ui::icons::{self, Icon};
 use crate::ui::revisions::{DiffShown, RevAction};
 use crate::ui::{UiState, bits, context, nav, props, schedule, status};
 use crate::view::edit::{
@@ -854,11 +855,20 @@ impl StudioApp {
     fn toolbar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         ui.horizontal(|ui| {
-            if ui.button(t("LDF 열기")).clicked() {
+            if icons::button(ui, Icon::Folder, t("LDF 열기")).clicked() {
                 self.pick(&ctx, false);
             }
-            if ui.button("Checker").clicked() {
+            if icons::button(ui, Icon::Check, "Checker").clicked() {
                 self.st.checker.open = true;
+            }
+            if ui
+                .add_enabled_ui(self.snapshot.is_some(), |ui| {
+                    icons::button(ui, Icon::Export, t("내보내기"))
+                })
+                .inner
+                .clicked()
+            {
+                self.st.export.open = true;
             }
             ui.separator();
             let (can_undo, can_redo, dirty) = self
@@ -866,21 +876,24 @@ impl StudioApp {
                 .as_ref()
                 .map_or((false, false, false), |s| (s.can_undo, s.can_redo, s.dirty));
             if ui
-                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .add_enabled_ui(can_undo, |ui| icons::button(ui, Icon::Undo, "Undo"))
+                .inner
                 .on_hover_text(t("실행 취소 (Ctrl+Z)"))
                 .clicked()
             {
                 self.undo();
             }
             if ui
-                .add_enabled(can_redo, egui::Button::new("Redo"))
+                .add_enabled_ui(can_redo, |ui| icons::button(ui, Icon::Redo, "Redo"))
+                .inner
                 .on_hover_text(t("다시 실행 (Ctrl+Y)"))
                 .clicked()
             {
                 self.redo();
             }
             if ui
-                .add_enabled(dirty, egui::Button::new(t("저장")))
+                .add_enabled_ui(dirty, |ui| icons::button(ui, Icon::Save, t("저장")))
+                .inner
                 .on_hover_text(t("편집한 내용을 새 리비전으로 저장 (Ctrl+S)"))
                 .clicked()
             {
@@ -906,6 +919,7 @@ impl StudioApp {
             .find(|r| Some(r.id) == current)
             .map_or_else(|| t("리비전").to_owned(), label);
         let mut open: Option<i64> = None;
+        icons::inline(ui, Icon::History);
         egui::ComboBox::from_id_salt("revision-combo")
             .selected_text(selected)
             .width(280.0)
@@ -934,7 +948,7 @@ impl StudioApp {
             ui.horizontal(|ui| {
                 // 알림은 한국어로 쌓아 둔 채 언어를 바꿀 수 있으므로 그리는 자리에서 번역한다
                 ui.colored_label(ui.visuals().warn_fg_color, tr(&msg));
-                if ui.small_button(t("닫기")).clicked() {
+                if icons::button(ui, Icon::Close, t("닫기")).clicked() {
                     self.notice = None;
                 }
             });
@@ -950,7 +964,7 @@ impl StudioApp {
                 ui.add_space(8.0);
                 ui.label(t("LDF 파일을 이 창에 끌어다 놓거나 아래 버튼으로 여세요."));
                 ui.add_space(12.0);
-                if ui.button(t("LDF 열기…")).clicked() {
+                if icons::button(ui, Icon::Folder, t("LDF 열기…")).clicked() {
                     self.pick(&ctx, false);
                 }
                 if !self.revisions.is_empty() {

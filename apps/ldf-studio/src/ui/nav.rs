@@ -1,6 +1,7 @@
 //! 내비게이션 뷰: Frames/Commands, Nodes/Frames 두 탭의 트리와 이름 검색.
 
 use super::UiState;
+use super::icons::{self, Icon};
 use crate::i18n::t;
 use crate::view::nav::{self, NavKey, NavNode};
 use crate::view::{NavTab, Selection};
@@ -16,11 +17,16 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         ui.selectable_value(&mut st.nav_tab, NavTab::Nodes, "Nodes/Frames");
     });
 
-    let search = ui.add(
-        egui::TextEdit::singleline(&mut st.search)
-            .hint_text(t("이름 검색 (Ctrl+F)"))
-            .desired_width(f32::INFINITY),
-    );
+    let search = ui
+        .horizontal(|ui| {
+            icons::inline(ui, Icon::Search);
+            ui.add(
+                egui::TextEdit::singleline(&mut st.search)
+                    .hint_text(t("이름 검색 (Ctrl+F)"))
+                    .desired_width(f32::INFINITY),
+            )
+        })
+        .inner;
     if st.focus_search {
         search.request_focus();
         st.focus_search = false;
@@ -97,11 +103,31 @@ pub fn show(ui: &mut Ui, snap: &ModelSnapshot, st: &mut UiState, hex: bool) {
         }
     });
 }
+/// 트리 줄의 아이콘.
+fn icon_of(key: &NavKey) -> Icon {
+    use crate::view::NodeGroup;
+    match key {
+        NavKey::Root(_) => Icon::Cluster,
+        NavKey::Group(_) | NavKey::CommandsDir | NavKey::NodeGroup(..) => Icon::Folder,
+        NavKey::Frame(_) => Icon::Frame,
+        NavKey::Command(_) => Icon::Command,
+        NavKey::Node(_) => Icon::Node,
+        NavKey::NodeItem(_, group, _) => match group {
+            NodeGroup::PublishedSignals | NodeGroup::SubscribedSignals => Icon::Signal,
+            NodeGroup::PublishedFrames | NodeGroup::SubscribedFrames => Icon::Frame,
+        },
+    }
+}
+
 fn draw(b: &mut TreeViewBuilder<'_, NavKey>, n: &NavNode, depth: usize) {
+    let icon = icon_of(&n.key);
     if n.dir {
         b.node(
             NodeBuilder::dir(n.key.clone())
                 .label(n.label.clone())
+                .icon(move |ui| {
+                    icons::inline(ui, icon);
+                })
                 .default_open(depth < 2),
         );
         for c in &n.children {
@@ -109,7 +135,13 @@ fn draw(b: &mut TreeViewBuilder<'_, NavKey>, n: &NavNode, depth: usize) {
         }
         b.close_dir();
     } else {
-        b.leaf(n.key.clone(), n.label.clone());
+        b.node(
+            NodeBuilder::leaf(n.key.clone())
+                .label(n.label.clone())
+                .icon(move |ui| {
+                    icons::inline(ui, icon);
+                }),
+        );
     }
 }
 

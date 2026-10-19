@@ -2,6 +2,7 @@
 
 use super::Cache;
 use super::editor::{self, EditorState};
+use super::icons::{self, Icon};
 use crate::i18n::{t, tr};
 use crate::view::checker::{self, CheckerTree, FlatRow, OpenKey};
 use egui::{Context, RichText, Sense, Ui};
@@ -44,6 +45,14 @@ pub struct CheckerState {
     goto_input: String,
     /// 규칙 설정 창이 열려 있는지.
     pub show_rules: bool,
+}
+
+fn severity_icon(s: Severity) -> Icon {
+    match s {
+        Severity::Error => Icon::Error,
+        Severity::Warning => Icon::Warning,
+        Severity::Info => Icon::Info,
+    }
 }
 
 fn severity_color(ui: &Ui, s: Severity) -> egui::Color32 {
@@ -292,6 +301,7 @@ fn results(ui: &mut Ui, tree: &CheckerTree, st: &mut CheckerState) {
                     let is_closed = collapsed.contains(&key);
                     row.col(|ui| {
                         ui.add_space(14.0);
+                        icons::inline(ui, severity_icon(*worst));
                         let c = severity_color(ui, *worst);
                         ui.colored_label(c, format!("{} {text}", sign(is_closed)));
                     });
@@ -314,6 +324,7 @@ fn results(ui: &mut Ui, tree: &CheckerTree, st: &mut CheckerState) {
                     row.set_selected(selected == Some((*g, *r, *i)));
                     row.col(|ui| {
                         ui.add_space(30.0);
+                        icons::inline(ui, severity_icon(item.severity));
                         let c = severity_color(ui, item.severity);
                         ui.colored_label(c, tr(&item.message));
                     });

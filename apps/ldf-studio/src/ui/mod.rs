@@ -6,6 +6,7 @@ pub mod context;
 pub mod edit;
 pub mod editor;
 pub mod export;
+pub mod icons;
 pub mod nav;
 pub mod props;
 pub mod revisions;

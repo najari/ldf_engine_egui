@@ -1338,3 +1338,35 @@ fn dialogs_and_windows_are_not_clipped_at_common_scales() {
     }
     assert!(problems.is_empty(), "잘린 글자:\n{}", problems.join("\n"));
 }
+
+// ---- 아이콘 버튼 ----------------------------------------------------------------------------------
+
+#[test]
+fn icon_buttons_keep_their_text_label_and_enabled_state() {
+    use super::icons::{self, Icon};
+    let (mut clicked, mut disabled_clicked) = (0, 0);
+    let mut h = Harness::new_ui(|ui| {
+        ui.horizontal(|ui| {
+            if icons::button(ui, Icon::Folder, "LDF 열기").clicked() {
+                clicked += 1;
+            }
+            if ui
+                .add_enabled_ui(false, |ui| icons::button(ui, Icon::Undo, "Undo"))
+                .inner
+                .clicked()
+            {
+                disabled_clicked += 1;
+            }
+        });
+    });
+    h.run();
+    // 스크린 리더·시험이 보는 이름은 아이콘이 아니라 글자다
+    h.get_by_label("LDF 열기").click();
+    h.get_by_label("Undo").click();
+    h.run();
+    assert!(h.get_by_label("Undo").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("LDF 열기").accesskit_node().is_disabled());
+    drop(h);
+    assert_eq!(clicked, 1);
+    assert_eq!(disabled_clicked, 0, "꺼진 버튼은 눌리지 않는다");
+}

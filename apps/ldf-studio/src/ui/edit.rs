@@ -5,6 +5,7 @@
 
 use crate::i18n::{t, tr};
 use crate::ui::bits;
+use crate::ui::icons::{self, Icon};
 use crate::view::SelKey;
 use crate::view::edit::{
     CompositionUi, EncodingUi, EntryUi, FrameUi, KindUi, NewSignalUi, NodeUi, Preview, ScheduleUi,
@@ -386,8 +387,7 @@ fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]
                     .and_then(|s| model.signals.get(s))
                     .map_or(0, |s| s.size_bits);
                 ui.weak(tf!("{len}비트"));
-                if ui
-                    .small_button(t("삭제"))
+                if icons::button(ui, Icon::Trash, t("삭제"))
                     .on_hover_text(t("프레임에서 뺀다"))
                     .clicked()
                 {
@@ -406,7 +406,7 @@ fn placements(ui: &mut Ui, model: &LdfModel, d: &mut FrameUi, signals: &[String]
                         .prefix(t("비트 ")),
                 );
                 ui.add(DragValue::new(&mut n.size).range(1..=16).suffix(t("비트")));
-                if ui.small_button(t("삭제")).clicked() {
+                if icons::button(ui, Icon::Trash, t("삭제")).clicked() {
                     remove = Some(d.placements.len() + i);
                 }
                 ui.end_row();
@@ -526,11 +526,11 @@ fn signal(
                 ui.horizontal(|ui| {
                     pick_opt(ui, "sig-enc", &mut d.encoding, &encodings);
                     if let Some(name) = &d.encoding
-                        && ui.small_button(t("편집…")).clicked()
+                        && icons::button(ui, Icon::Encoding, t("편집…")).clicked()
                     {
                         open_encoding = EncodingUi::from_name(model, name);
                     }
-                    if ui.small_button(t("새로…")).clicked() {
+                    if icons::button(ui, Icon::Encoding, t("새로…")).clicked() {
                         open_encoding = Some(EncodingUi::new(model));
                     }
                 });
@@ -602,7 +602,7 @@ fn encoding(ui: &mut Ui, d: &mut EncodingUi) -> Done {
                         ui.label("");
                     }
                 }
-                if ui.small_button(t("삭제")).clicked() {
+                if icons::button(ui, Icon::Trash, t("삭제")).clicked() {
                     remove = Some(i);
                 }
                 ui.end_row();
@@ -753,7 +753,7 @@ fn node(
                         if with_ids {
                             text(ui, id, 70.0);
                         }
-                        if ui.small_button(t("삭제")).clicked() {
+                        if icons::button(ui, Icon::Trash, t("삭제")).clicked() {
                             remove = Some(i);
                         }
                     });
@@ -904,7 +904,7 @@ fn schedule(
                         if ui.small_button("↓").clicked() {
                             action = Some((i, 1));
                         }
-                        if ui.small_button(t("삭제")).clicked() {
+                        if icons::button(ui, Icon::Trash, t("삭제")).clicked() {
                             action = Some((i, 0));
                         }
                     });
