@@ -852,3 +852,233 @@ fn rule_settings_window_lists_rules_and_sends_changes() {
         h.state().actions.len()
     );
 }
+
+// ---- 스케줄 뷰와 컨텍스트 뷰 ---------------------------------------------------------------------
+
+fn schedule_state(snap: &ModelSnapshot) -> (UiState, ldf_model::ScheduleId) {
+    let sid = snap.model.find_schedule("T").expect("T");
+    let mut st = UiState::default();
+    st.sched_open.insert(sid);
+    (st, sid)
+}
+
+/// 포인터로 `from`에서 `to`까지 끌어다 놓는다(중간 걸음을 거쳐야 끌기가 시작된다).
+fn drag_and_drop(h: &mut Harness<'_, Main>, from: egui::Pos2, to: egui::Pos2) {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(egui::Event::PointerMoved(from));
+    h.step();
+    h.event(button(from, true));
+    h.step();
+    for k in 1..=8 {
+        let f = k as f32 / 8.0;
+        h.event(egui::Event::PointerMoved(from + (to - from) * f));
+        h.step();
+    }
+    h.event(button(to, false));
+    h.step();
+    h.run();
+}
+
+#[test]
+fn schedule_tables_expand_to_slots_with_their_timing() {
+    let snap = snapshot(SAMPLE);
+    let mut h = main_harness(snap, UiState::default(), false);
+    h.run();
+    h.get_by_label("T");
+    h.get_by_label("20.00"); // 한 바퀴 길이
+    assert!(
+        h.query_by_label("Unconditional").is_none(),
+        "접힌 테이블은 슬롯 줄이 없다"
+    );
+    h.get_by_label("+").click();
+    h.run();
+    // 슬롯 줄: 이름, 종류, delay, 최대·최소 프레임 시간
+    for label in ["FCmd", "FA", "4.04", "2.81", "4.77", "3.33"] {
+        h.get_by_label(label);
+    }
+    assert_eq!(h.get_all_by_label("Unconditional").count(), 2);
+    h.get_by_label("-").click();
+    h.run();
+    assert!(h.query_by_label("4.04").is_none());
+}
+
+#[test]
+fn clicking_a_slot_row_selects_the_slot() {
+    let snap = snapshot(SAMPLE);
+    let (st, sid) = schedule_state(&snap);
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    h.get_by_label("FA").click();
+    h.run();
+    assert_eq!(h.state().st.selection, Selection::Slot(sid, 1));
+    h.get_by_label("Schedule Slot Properties");
+    // 아래 컨텍스트 뷰는 그 테이블의 프레임을 보여 준다
+    h.get_by_label("Frames in Schedule Table <T>");
+    // 테이블 줄을 누르면 테이블 선택으로 바뀐다(속성 창에도 "T"가 있어 표 쪽을 위치로 가린다)
+    h.get_all_by_label("T")
+        .find(|n| n.rect().min.x < 600.0)
+        .expect("표의 T")
+        .click();
+    h.run();
+    assert_eq!(h.state().st.selection, Selection::Schedule(sid));
+    h.get_by_label("Table Id");
+}
+
+#[test]
+fn a_slot_delay_is_edited_in_the_slot_properties() {
+    let snap = snapshot(SAMPLE);
+    let (mut st, sid) = schedule_state(&snap);
+    st.selection = Selection::Slot(sid, 1);
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    // 속성 창(오른쪽)의 delay 값: 표에도 같은 글자가 있어 위치로 가린다
+    let value = h
+        .get_all_by_label("10.00")
+        .find(|n| n.rect().min.x > 1100.0 && n.rect().min.y < 100.0)
+        .expect("속성 창의 delay")
+        .rect()
+        .center();
+    let pos = value;
+    h.event(egui::Event::PointerMoved(pos));
+    h.step();
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+    h.run();
+    inline_input(&h, "10.00").type_text("5");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let sent = &h.state().sent;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let text = format!("{:?}", sent[0].0);
+    assert!(
+        text.contains("SetSlotDelay") && text.contains("10.005"),
+        "{text}"
+    );
+}
+
+#[test]
+fn dragging_a_slot_row_onto_another_moves_it() {
+    let snap = snapshot(SAMPLE);
+    let (st, _) = schedule_state(&snap);
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    let from = h.get_by_label("FCmd").rect().center();
+    let to = h.get_by_label("FA").rect().center();
+    drag_and_drop(&mut h, from, to);
+    assert_eq!(
+        h.state().st.pending_op,
+        Some(EditOp::MoveSlot {
+            table: "T".into(),
+            from: 0,
+            to: 1
+        }),
+        "{:?}",
+        h.state().st.pending_op
+    );
+}
+
+#[test]
+fn dropping_a_frame_from_the_tree_onto_a_table_makes_a_slot() {
+    let snap = snapshot(SAMPLE);
+    let mut h = main_harness(snap, UiState::default(), false);
+    h.run();
+    // 트리의 FA를 스케줄 테이블 T 줄 위로 끌어다 놓는다
+    let from = h.get_by_label("FA (2)").rect().center();
+    let to = h.get_by_label("T").rect().center() + egui::vec2(120.0, 0.0);
+    drag_and_drop(&mut h, from, to);
+    let op = h.state().st.pending_op.clone();
+    let text = format!("{op:?}");
+    assert!(
+        text.contains("AddSlot") && text.contains("\"T\"") && text.contains("\"FA\""),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_cluster_context_lists_every_frame() {
+    let snap = snapshot(SAMPLE);
+    let st = selected(&snap, |_| Selection::Cluster);
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    for label in [
+        "LIN Cluster Properties",
+        "Frame",
+        "Length [Byte]",
+        "Publisher",
+        "Subscribers",
+        "A, B", // FCmd의 구독자
+        "LIN Speed",
+        "19.200 kbps",
+        "Timebase [ms]",
+        "5.00",
+    ] {
+        h.get_by_label(label);
+    }
+}
+
+#[test]
+fn a_slave_node_context_lists_its_frames_and_attributes() {
+    let snap = snapshot(SAMPLE);
+    let st = selected(&snap, |m| Selection::Node(m.find_node("A").expect("A")));
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    for label in [
+        "Frames of <A>",
+        "Node Properties",
+        "Slave",
+        "LIN Protocol",
+        "Configured NAD",
+        "Product ID",
+        "1, 2, 3",
+        "Response Error",
+        "Configurable Frames",
+    ] {
+        h.get_by_label(label);
+    }
+}
+
+#[test]
+fn the_master_context_shows_timing_instead_of_slave_attributes() {
+    let snap = snapshot(SAMPLE);
+    let st = selected(&snap, |m| Selection::Node(m.find_node("M").expect("M")));
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    h.get_by_label("Frames of <M>");
+    h.get_by_label("Master");
+    h.get_by_label("Timebase [ms]");
+    h.get_by_label("0.10"); // 지터
+    assert!(h.query_by_label("Configured NAD").is_none());
+}
+
+#[test]
+fn a_signal_context_lists_the_frames_that_carry_it() {
+    let snap = snapshot(SAMPLE);
+    let st = selected(&snap, |m| {
+        Selection::Signal(m.find_signal("Pos").expect("Pos"))
+    });
+    let mut h = main_harness(snap, st, false);
+    h.run();
+    for label in [
+        "Frames containing <Pos>",
+        "Signal Properties",
+        "Scalar / Byte array",
+        "Length [Bit]",
+        "16",
+        "Init Value",
+    ] {
+        h.get_by_label(label);
+    }
+}
